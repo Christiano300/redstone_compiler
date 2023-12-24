@@ -2,7 +2,7 @@ use std::io::{self, Write};
 
 use frontend::Parser;
 
-#[allow(dead_code)]
+#[allow(dead_code, unused)]
 mod backend;
 mod frontend;
 #[allow(dead_code)]

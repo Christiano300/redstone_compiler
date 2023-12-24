@@ -1,5 +1,6 @@
 use once_cell::sync::Lazy;
 
+use super::{EqualityOperator as EqOp, EQ_OPERATORS};
 use crate::frontend::{Operator, OPERATORS};
 use std::collections::HashMap;
 
@@ -11,6 +12,7 @@ static KEYWORDS: Lazy<HashMap<String, Token>> = Lazy::new(|| {
     map.insert("elseif".to_string(), Token::Elif);
     map.insert("else".to_string(), Token::Else);
     map.insert("end".to_string(), Token::End);
+    map.insert("pass".to_string(), Token::Pass);
     map
 });
 
@@ -24,11 +26,13 @@ pub enum Token {
     Comma,
     Dot,
     BinaryOperator(Operator),
+    EqOperator(EqOp),
     Inline,
     If,
     Elif,
     Else,
     End,
+    Pass,
     Eof,
 }
 
@@ -38,7 +42,7 @@ fn is_skippable(src: char) -> bool {
 
 use Token as T;
 
-pub fn tokenize(source_code: String) -> Vec<Token> {
+pub fn tokenize(source_code: String) -> Result<Vec<Token>, String> {
     let mut tokens = vec![];
 
     let mut src = source_code.chars().peekable();
@@ -56,10 +60,23 @@ pub fn tokenize(source_code: String) -> Vec<Token> {
             '+' | '-' | '*' | '&' | '|' | '^' => {
                 tokens.push(T::BinaryOperator(*OPERATORS.get(&char).unwrap()))
             }
-            '=' => tokens.push(T::Equals),
             ',' => tokens.push(T::Comma),
             '.' => tokens.push(T::Dot),
 
+            '=' => match src.peek() {
+                Some('=') => {
+                    src.next();
+                    tokens.push(T::EqOperator(EqOp::EqualTo));
+                }
+                _ => tokens.push(T::Equals),
+            },
+            '>' | '<' | '!' => {
+                let equals_after = matches!(src.peek(), Some('='));
+
+                if let Some(token) = EQ_OPERATORS.get(&(char, equals_after)) {
+                    tokens.push(T::EqOperator(*token));
+                }
+            }
             _ => {
                 if char.is_ascii_digit() {
                     let mut num = String::new();
@@ -89,13 +106,12 @@ pub fn tokenize(source_code: String) -> Vec<Token> {
                         T::Identifier(identifier)
                     });
                 } else if !is_skippable(char) {
-                    println!("Unrecognized Character found: {:?}", char);
-                    panic!();
+                    return Err(format!("Unrecognized Character found: {:?}", char));
                 }
             }
         }
     }
     tokens.push(T::Eof);
 
-    tokens
+    Ok(tokens)
 }
