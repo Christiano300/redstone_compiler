@@ -1,8 +1,9 @@
 pub mod compiler;
 pub mod instruction;
+mod module;
 
-pub use compiler::*;
+pub use compiler::{compile_program, compile_src};
 pub use instruction::*;
 
-mod module;
+use compiler::*;
 use module::*;

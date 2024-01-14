@@ -82,7 +82,7 @@ impl Parser {
                 while !matches!(self.at(), Token::End) {
                     body.push(self.parse_statement()?);
                 }
-                if body.len() == 0 {
+                if body.is_empty() {
                     return Err("Cannot have empty block. Use 'pass'".to_string());
                 }
                 Statement::Program { body }
@@ -106,7 +106,7 @@ impl Parser {
         while !matches!(self.at(), Token::Elif | Token::Else | Token::End) {
             body.push(self.parse_statement()?);
         }
-        if body.len() == 0 {
+        if body.is_empty() {
             return Err("Cannot have empty block. Use 'pass'".to_string());
         }
         Ok((condition, Box::new(Statement::Program { body })))

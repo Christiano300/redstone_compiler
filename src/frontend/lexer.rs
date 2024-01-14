@@ -75,6 +75,7 @@ pub fn tokenize(source_code: String) -> Result<Vec<Token>, String> {
 
                 if let Some(token) = EQ_OPERATORS.get(&(char, equals_after)) {
                     tokens.push(T::EqOperator(*token));
+
                 }
             }
             _ => {

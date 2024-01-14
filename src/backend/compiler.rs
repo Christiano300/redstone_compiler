@@ -2,7 +2,22 @@ use std::{collections::HashMap, i32};
 
 use crate::frontend::{Code, Expression, Operator, Parser, Statement};
 
-use super::Instruction;
+use super::{Instruction, InstructionVariant};
+
+macro_rules! instr {
+    ($self:ident, $variant:ident, $arg:expr) => {
+        $self.instructions.push(Instruction {
+            variant: InstuctionVariant::$variant,
+            arg: Some($arg),
+        })
+    };
+    ($self:ident, $variant:ident) => {
+        $self.instructions.push(Instruction {
+            variant: InstructionVariant::$variant,
+            arg: None,
+        })
+    };
+}
 
 pub fn compile_program(ast: Code) -> Vec<Instruction> {
     match ast {
@@ -22,20 +37,21 @@ pub fn compile_src(source_code: String) -> Vec<Instruction> {
     compile_program(parser.produce_ast(source_code).unwrap())
 }
 
-#[derive(Default)]
-enum RegisterContents {
+#[derive(Default, Copy, Clone)]
+pub enum RegisterContents {
     Variable(u8),
+    Number(i16),
     Result(i16),
     RamAddress(i32),
     #[default]
     Unknown,
 }
 
-#[derive(Default)]
-struct ComputerState {
-    reg_a: RegisterContents,
-    reg_b: RegisterContents,
-    reg_c: u8,
+#[derive(Default, Copy, Clone)]
+pub struct ComputerState {
+    pub reg_a: RegisterContents,
+    pub reg_b: RegisterContents,
+    pub reg_c: u8,
 }
 
 struct Scope {
@@ -61,14 +77,31 @@ impl Compiler {
         }
     }
 
-    fn insert_inline(&mut self, symbol: String, value: i16) {
+    fn insert_inline_var(&mut self, symbol: String, value: i16) {
         let last_scope = self.scopes.last_mut().unwrap();
         last_scope.inline_variables.insert(symbol, value);
     }
 
-    fn get_inline(&mut self, symbol: &String) -> Result<i16, ()> {
-        for scope in self.scopes.iter_mut().rev() {
+    fn get_inline_var(&self, symbol: &String) -> Result<i16, ()> {
+        for scope in self.scopes.iter().rev() {
             let entry = scope.inline_variables.get(symbol);
+            if let Some(v) = entry {
+                return Ok(*v);
+            }
+        }
+        Err(())
+    }
+
+    fn insert_var(&mut self, symbol: String) {
+        let last_scope = self.scopes.last_mut().unwrap();
+        last_scope
+            .variables
+            .insert(symbol, last_scope.variables.len().try_into().unwrap());
+    }
+
+    fn get_var(&self, symbol: &String) -> Result<u8, ()> {
+        for scope in self.scopes.iter().rev() {
+            let entry = scope.variables.get(symbol);
             if let Some(v) = entry {
                 return Ok(*v);
             }
@@ -85,7 +118,7 @@ impl Compiler {
             Code::Stmt(stmt) => match stmt {
                 Statement::InlineDeclaration { symbol, value } => {
                     let value = self.eval_after_inline(value);
-                    self.insert_inline(symbol, value)
+                    self.insert_inline_var(symbol, value)
                 }
                 _ => unimplemented!(),
             },
@@ -96,7 +129,7 @@ impl Compiler {
 
     fn eval_after_inline(&mut self, expr: Expression) -> i16 {
         match expr {
-            Expression::Identifier(name) => self.get_inline(&name).unwrap(),
+            Expression::Identifier(name) => self.get_inline_var(&name).unwrap(),
             Expression::BinaryExpr {
                 left,
                 right,
@@ -120,20 +153,24 @@ impl Compiler {
         }
     }
 
-    //fn get_variable_slot(&mut self, name: String) -> u8 {
-    //  if let Some(slot) = self.variables.get(&name) {
-    //    return *slot;
-    //    }
-    //    let slot = (self.variables.len() + 1) as u8;
-    //    self.variables.insert(name, slot);
-    //    slot
-    //}
+    fn eval_expr(&mut self, expr: Expression) {
+        match expr {
+            Expression::NumericLiteral(number) => todo!(),
+            Expression::Identifier(ident) => todo!(),
+            Expression::BinaryExpr {
+                left,
+                right,
+                operator,
+            } => self.eval_binary_expr(&*left, &*right, operator),
+            _ => {}
+        }
+    }
 
-    //fn handle_assignment(&mut self, symbol: String, value: Expression) {
-    //    let slot = self.get_variable_slot(symbol);
-
-    //    self.parse_expression(value);
-    //}
+    fn eval_binary_expr(&mut self, left: &Expression, right: &Expression, operator: Operator) {
+        match (left, right) {
+            _ => {}
+        }
+    }
 
     fn parse_expression(&mut self, value: Expression) {}
 }
