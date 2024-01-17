@@ -7,6 +7,7 @@ use super::{Instruction, InstructionVariant};
 pub enum CompilerError {
     NonexistentVar(String),
     TooManyVars,
+    ForbiddenInline,
 }
 
 type Res<T = ()> = Result<T, CompilerError>;
@@ -89,23 +90,23 @@ impl Compiler {
         last_scope.inline_variables.insert(symbol, value);
     }
 
-    fn get_inline_var(&self, symbol: &String) -> Result<i16, ()> {
+    fn get_inline_var(&self, symbol: &String) -> Res<i16> {
         for scope in self.scopes.iter().rev() {
             let entry = scope.inline_variables.get(symbol);
             if let Some(v) = entry {
                 return Ok(*v);
             }
         }
-        Err(())
+        Err(CompilerError::NonexistentVar(symbol.clone()))
     }
 
-    fn insert_var(&mut self, symbol: &String) -> Res<u8> {
+    fn insert_var(&mut self, symbol: &str) -> Res<u8> {
         let last_scope = self.scopes.last_mut().unwrap();
         let slot = match last_scope.variables.len().try_into() {
             Ok(v) => v,
             Err(_) => return Err(CompilerError::TooManyVars),
         };
-        last_scope.variables.insert(symbol.clone(), slot);
+        last_scope.variables.insert(symbol.to_owned(), slot);
         Ok(slot)
     }
 
@@ -131,52 +132,51 @@ impl Compiler {
 
     fn cleanup_temp_var(&mut self, index: u8) {
         let last_scope = self.scopes.last_mut().unwrap();
-        last_scope
-            .variables
-            .remove(format!(" {}", index);
+        last_scope.variables.remove(&format!(" {}", index));
     }
 
     fn generate_assembly(mut self, body: Vec<Code>) -> Vec<Instruction> {
-        body.into_iter().for_each(|line| match line {
-            Code::Expr(expr) => match expr {
-                Expression::Assignment { symbol, value } => {} // handle_assignment
-                _ => unimplemented!(),
-            },
-            Code::Stmt(stmt) => match stmt {
-                Statement::InlineDeclaration { symbol, value } => {
-                    let value = self.eval_after_inline(value);
-                    self.insert_inline_var(symbol, value)
-                }
-                _ => unimplemented!(),
-            },
+        body.into_iter().try_for_each(|line| {
+            match line {
+                Code::Expr(expr) => match expr {
+                    Expression::Assignment { symbol, value } => {} // handle_assignment
+                    _ => unimplemented!(),
+                },
+                Code::Stmt(stmt) => match stmt {
+                    Statement::InlineDeclaration { symbol, value } => {
+                        let value = self.eval_after_inline(value)?;
+                        self.insert_inline_var(symbol, value)
+                    }
+                    _ => unimplemented!(),
+                },
+            };
+            Ok::<(), CompilerError>(())
         });
 
         self.instructions
     }
 
-    fn eval_after_inline(&mut self, expr: Expression) -> i16 {
+    fn eval_after_inline(&mut self, expr: Expression) -> Res<i16> {
         match expr {
-            Expression::Identifier(name) => self.get_inline_var(&name).unwrap(),
+            Expression::Identifier(name) => self.get_inline_var(&name),
             Expression::BinaryExpr {
                 left,
                 right,
                 operator,
             } => {
-                let left = self.eval_after_inline(*left);
-                let right = self.eval_after_inline(*right);
-                match operator {
+                let left = self.eval_after_inline(*left)?;
+                let right = self.eval_after_inline(*right)?;
+                Ok(match operator {
                     Operator::Plus => left + right,
                     Operator::Minus => left - right,
                     Operator::Mult => left * right,
                     Operator::And => left & right,
                     Operator::Or => left | right,
                     Operator::Xor => left ^ right,
-                }
+                })
             }
-            Expression::NumericLiteral(value) => value,
-            _ => {
-                panic!()
-            }
+            Expression::NumericLiteral(value) => Ok(value),
+            _ => Err(CompilerError::ForbiddenInline),
         }
     }
 
@@ -188,13 +188,13 @@ impl Compiler {
                 left,
                 right,
                 operator,
-            } => self.eval_binary_expr(&left, &right, operator)?,
+            } => self.eval_binary_expr(left, right, operator)?,
             _ => {}
         }
         Ok(())
     }
 
-    fn is_simple(expr: &Expression) -> bool {
+    fn is_semi_simple(expr: &Expression) -> bool {
         use Expression::*;
         match expr {
             Identifier(..) | NumericLiteral(..) => true,
@@ -202,7 +202,7 @@ impl Compiler {
                 left,
                 right,
                 operator,
-            } => Compiler::is_simple(left) && Compiler::is_simple(right),
+            } => Compiler::is_semi_simple(left) || Compiler::is_semi_simple(right),
             _ => false,
         }
     }
@@ -218,14 +218,27 @@ impl Compiler {
             (Identifier(..) | NumericLiteral(..), Identifier(..) | NumericLiteral(..)) => {
                 self.eval_simple_expr(left, right, operator)?;
             }
-            (Identifier(..) | NumericLiteral(..), _) | (_, Identifier(..) | NumericLiteral(..)) => {
+            (Identifier(..) | NumericLiteral(..), _) => {
+                self.eval_expr(right)?;
+                if matches!(operator, Operator::Minus) {
+                    self.switch()?;
+                    self.put_a(left);
+                } else {
+                    self.put_b(left);
+                }
+                self.put_op(operator);
+            }
+            (_, Identifier(..) | NumericLiteral(..)) => {
+                self.eval_expr(left)?;
+                self.put_b(right)?;
+                self.put_op(operator);
             }
             _ => {}
         }
         Ok(())
     }
 
-    fn eval_assignment(&mut self, symbol: &String, value: &Expression) -> Res {
+    fn eval_assignment(&mut self, symbol: &str, value: &Expression) -> Res {
         let slot = self.insert_var(symbol)?;
 
         self.eval_expr(value)?;
@@ -241,23 +254,39 @@ impl Compiler {
         right: &Expression,
         operator: &Operator,
     ) -> Res {
-        // load a
-        use Expression::*;
-        match left {
-            NumericLiteral(value) => {
-                let bytes = value.to_le_bytes();
-                instr!(self, LAL, bytes[0]);
-                if bytes[1] != 0 {
-                    instr!(self, LAH, bytes[1]);
-                }
-            }
-            Identifier(symbol) => {
-                instr!(self, LA, self.get_var(symbol)?);
-            }
-            _ => {}
-        }
+        self.put_a(left);
 
-        match right {
+        self.put_b(right);
+
+        self.put_op(operator);
+
+        Ok(())
+    }
+
+    fn put_op(&mut self, operator: &Operator) {
+        use Operator::*;
+        match operator {
+            Plus => instr!(self, ADD),
+            Minus => instr!(self, SUB),
+            Mult => instr!(self, MUL),
+            And => instr!(self, AND),
+            Or => instr!(self, OR),
+            Xor => instr!(self, XOR),
+        }
+    }
+
+    /// puts a into b
+    fn switch(&mut self) -> Res {
+        let temp = self.insert_temp_var()?;
+        instr!(self, SVA, temp);
+        self.cleanup_temp_var(temp);
+        Ok(())
+    }
+
+    /// expr should be either NumericLiteral or Identifier
+    fn put_b(&mut self, expr: &Expression) -> Res {
+        use Expression::*;
+        match expr {
             NumericLiteral(value) => {
                 let bytes = value.to_le_bytes();
                 instr!(self, LBL, bytes[0]);
@@ -270,19 +299,25 @@ impl Compiler {
             }
             _ => {}
         }
-
-        use Operator::*;
-        match operator {
-            Plus => instr!(self, ADD),
-            Minus => instr!(self, SUB),
-            Mult => instr!(self, MUL),
-            And => instr!(self, AND),
-            Or => instr!(self, OR),
-            Xor => instr!(self, XOR),
-        }
-
         Ok(())
     }
 
-    fn parse_expression(&mut self, value: Expression) {}
+    /// expr should be either NumericLiteral or Identifier
+    fn put_a(&mut self, expr: &Expression) -> Res {
+        use Expression::*;
+        match expr {
+            NumericLiteral(value) => {
+                let bytes = value.to_le_bytes();
+                instr!(self, LAL, bytes[0]);
+                if bytes[1] != 0 {
+                    instr!(self, LAH, bytes[1]);
+                }
+            }
+            Identifier(symbol) => {
+                instr!(self, LA, self.get_var(symbol)?);
+            }
+            _ => {}
+        }
+        Ok(())
+    }
 }
