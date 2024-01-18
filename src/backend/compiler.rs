@@ -2,7 +2,7 @@ use std::{collections::HashMap, i32};
 
 use crate::frontend::{Code, Expression, Operator, Parser, Statement};
 
-use super::{Instruction, InstructionVariant};
+use super::{instruction, Instruction, InstructionVariant};
 
 pub enum CompilerError {
     NonexistentVar(String),
@@ -14,13 +14,13 @@ type Res<T = ()> = Result<T, CompilerError>;
 
 macro_rules! instr {
     ($self:ident, $variant:ident, $arg:expr) => {
-        $self.instructions.push(Instruction {
+        $self.push_instr(Instruction {
             variant: &InstructionVariant::$variant,
             arg: Some($arg),
         })
     };
     ($self:ident, $variant:ident) => {
-        $self.instructions.push(Instruction {
+        $self.push_instr(Instruction {
             variant: &InstructionVariant::$variant,
             arg: None,
         })
@@ -62,15 +62,21 @@ pub struct ComputerState {
     pub reg_c: u8,
 }
 
+enum Instr {
+    Code(Instruction),
+    Scope(Vec<Instr>),
+}
+
 struct Scope {
     start_state: ComputerState,
     variables: HashMap<String, u8>,
     inline_variables: HashMap<String, i16>,
+    instructions: Vec<Instr>,
 }
 
 pub struct Compiler {
     scopes: Vec<Scope>,
-    instructions: Vec<Instruction>,
+    main_scope: Vec<Instr>,
 }
 
 impl Compiler {
@@ -80,8 +86,9 @@ impl Compiler {
                 start_state: Default::default(),
                 variables: HashMap::new(),
                 inline_variables: HashMap::new(),
+                instructions: vec![],
             }],
-            instructions: vec![],
+            main_scope: vec![],
         }
     }
 
@@ -135,25 +142,45 @@ impl Compiler {
         last_scope.variables.remove(&format!(" {}", index));
     }
 
+    fn push_instr(&mut self, instr: Instruction) {
+        let last_scope = self.scopes.last_mut().unwrap();
+        last_scope.instructions.push(Instr::Code(instr));
+    }
+
+    fn get_instructions(self) -> Vec<Instruction> {
+        let mut instructions = vec![];
+        Compiler::resolve_scope(self.main_scope, &mut instructions);
+        instructions
+    }
+
+    fn resolve_scope(scope: Vec<Instr>, into: &mut Vec<Instruction>) {
+        scope.into_iter().for_each(|i| match i {
+            Instr::Code(instr) => into.push(instr),
+            Instr::Scope(s) => Compiler::resolve_scope(s, into),
+        })
+    }
+
     fn generate_assembly(mut self, body: Vec<Code>) -> Vec<Instruction> {
         body.into_iter().try_for_each(|line| {
             match line {
-                Code::Expr(expr) => match expr {
-                    Expression::Assignment { symbol, value } => {} // handle_assignment
-                    _ => unimplemented!(),
-                },
+                Code::Expr(expr) => self.eval_expr(&expr),
+
                 Code::Stmt(stmt) => match stmt {
                     Statement::InlineDeclaration { symbol, value } => {
                         let value = self.eval_after_inline(value)?;
-                        self.insert_inline_var(symbol, value)
+                        self.insert_inline_var(symbol, value);
+                        Ok(())
                     }
-                    _ => unimplemented!(),
+                    _ => Ok(()),
                 },
             };
             Ok::<(), CompilerError>(())
         });
 
-        self.instructions
+        self.main_scope
+            .push(Instr::Scope(self.scopes.pop().unwrap().instructions));
+
+        self.get_instructions()
     }
 
     fn eval_after_inline(&mut self, expr: Expression) -> Res<i16> {
@@ -182,29 +209,17 @@ impl Compiler {
 
     fn eval_expr(&mut self, expr: &Expression) -> Res {
         match expr {
-            Expression::NumericLiteral(number) => todo!(),
-            Expression::Identifier(ident) => todo!(),
+            Expression::NumericLiteral(number) => self.put_a(expr)?,
+            Expression::Identifier(ident) => self.put_a(expr)?,
             Expression::BinaryExpr {
                 left,
                 right,
                 operator,
             } => self.eval_binary_expr(left, right, operator)?,
+            Expression::Assignment { symbol, value } => self.eval_assignment(symbol, value)?,
             _ => {}
         }
         Ok(())
-    }
-
-    fn is_semi_simple(expr: &Expression) -> bool {
-        use Expression::*;
-        match expr {
-            Identifier(..) | NumericLiteral(..) => true,
-            BinaryExpr {
-                left,
-                right,
-                operator,
-            } => Compiler::is_semi_simple(left) || Compiler::is_semi_simple(right),
-            _ => false,
-        }
     }
 
     fn eval_binary_expr(
@@ -233,7 +248,15 @@ impl Compiler {
                 self.put_b(right)?;
                 self.put_op(operator);
             }
-            _ => {}
+            _ => {
+                self.eval_expr(right)?;
+                let temp = self.insert_temp_var()?;
+                instr!(self, SVA, temp);
+                self.eval_expr(left)?;
+                instr!(self, LB, temp);
+                self.cleanup_temp_var(temp);
+                self.put_op(operator);
+            }
         }
         Ok(())
     }

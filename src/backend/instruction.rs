@@ -1,5 +1,6 @@
 use core::panic;
-use std::fmt;
+use std::fmt::Debug;
+use std::fmt::{self, Display};
 use std::u8;
 
 use table_enum::table_enum;
@@ -88,10 +89,13 @@ pub struct Instruction {
 
 impl fmt::Display for Instruction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.arg {
-            None => write!(f, "{}", self.variant.name()),
-            Some(arg) => write!(f, "{} {}", self.variant.name(), arg),
-        }
+        self.to_string(f)
+    }
+}
+
+impl Debug for Instruction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.to_string(f)
     }
 }
 
@@ -101,6 +105,13 @@ use super::ComputerState;
 impl Instruction {
     pub fn to_bin(&self) -> u16 {
         (self.variant.to_byte() as u16) << 8 | self.arg.unwrap_or(0) as u16
+    }
+
+    pub fn to_string(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.arg {
+            None => write!(f, "{}", self.variant.name()),
+            Some(arg) => write!(f, "{} {}", self.variant.name(), arg),
+        }
     }
 
     pub fn execute(&self, on: &mut ComputerState) {

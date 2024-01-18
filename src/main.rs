@@ -2,6 +2,8 @@ use std::io::{self, Write};
 
 use frontend::Parser;
 
+use crate::backend::compile_program;
+
 #[allow(dead_code, unused)]
 mod backend;
 mod frontend;
@@ -24,7 +26,10 @@ fn main() -> io::Result<()> {
             return io::Result::Ok(());
         }
 
-        let ast = parser.produce_ast(line);
+        let ast = parser.produce_ast(line).unwrap();
         println!("{:#?}", ast);
+
+        let code = compile_program(ast);
+        println!("{:#?}", code)
     }
 }
