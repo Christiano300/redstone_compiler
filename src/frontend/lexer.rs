@@ -13,6 +13,7 @@ static KEYWORDS: Lazy<HashMap<String, Token>> = Lazy::new(|| {
     map.insert("else".to_string(), Token::Else);
     map.insert("end".to_string(), Token::End);
     map.insert("pass".to_string(), Token::Pass);
+    map.insert("use".to_string(), Token::Use);
     map
 });
 
@@ -33,6 +34,7 @@ pub enum Token {
     Else,
     End,
     Pass,
+    Use,
     Eof,
 }
 
@@ -75,7 +77,7 @@ pub fn tokenize(source_code: String) -> Result<Vec<Token>, String> {
 
                 if let Some(token) = EQ_OPERATORS.get(&(char, equals_after)) {
                     tokens.push(T::EqOperator(*token));
-
+                    src.next();
                 }
             }
             _ => {

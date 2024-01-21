@@ -4,7 +4,7 @@ use frontend::Parser;
 
 use crate::backend::compile_program;
 
-#[allow(dead_code, unused)]
+#[allow(dead_code)]
 mod backend;
 mod frontend;
 #[allow(dead_code)]

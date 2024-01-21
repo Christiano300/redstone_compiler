@@ -1,12 +1,13 @@
 use core::panic;
 use std::fmt::Debug;
-use std::fmt::{self, Display};
+use std::fmt::{self};
 use std::u8;
 
 use table_enum::table_enum;
 
 table_enum! {
     #[derive(Debug)]
+    #[allow(unused)]
     pub enum InstructionVariant(
     name: &'static str,
     disc_jump: bool,

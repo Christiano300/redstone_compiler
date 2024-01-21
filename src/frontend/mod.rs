@@ -5,3 +5,6 @@ pub mod parser;
 pub use ast::*;
 pub use lexer::*;
 pub use parser::*;
+
+#[cfg(test)]
+mod test;

@@ -60,6 +60,7 @@ impl Parser {
                 self.eat();
                 Code::Stmt(Statement::Pass)
             }
+            Token::Use => Code::Stmt(self.parse_use_statement()?),
             _ => Code::Expr(self.parse_expression()?),
         })
     }
@@ -112,12 +113,32 @@ impl Parser {
         Ok((condition, Box::new(Statement::Program { body })))
     }
 
+    fn parse_use_statement(&mut self) -> Result<Statement, String> {
+        self.eat();
+        use Token::*;
+        match self.eat() {
+            Identifier(symbol) => Ok(Statement::Use { module: symbol }),
+            Number(value) => {
+                if value == 17 {
+                    return Ok(Statement::Use {
+                        module: "fun".to_string(),
+                    });
+                }
+                Err("Invalid module".to_string())
+            }
+            _ => Err("Invalid module".to_string()),
+        }
+    }
+
     fn parse_inline_declaration(&mut self) -> Result<Statement, String> {
         self.eat();
         let Token::Identifier(identifier) = self.eat_if(
             match_fn!(Token::Identifier { .. }),
             "'inline' can only be followed by an identifier",
-        )? else { unreachable!() };
+        )?
+        else {
+            unreachable!()
+        };
 
         self.eat_if(
             match_fn!(Token::Equals),
@@ -141,7 +162,9 @@ impl Parser {
             if !matches!(left, Expression::Identifier(..)) {
                 return Err("can only assign to identifiers".to_string());
             }
-            let Expression::Identifier(name) = left else {unreachable!()};
+            let Expression::Identifier(name) = left else {
+                unreachable!()
+            };
             self.eat();
             let value = self.parse_assignment()?;
             return Ok(Expression::Assignment {
@@ -286,7 +309,9 @@ impl Parser {
             if !matches!(property, Expression::Identifier(..)) {
                 return Err("Cannot use dot operator on whatever you typed".to_string());
             }
-            let Expression::Identifier(property) = property else {unreachable!()};
+            let Expression::Identifier(property) = property else {
+                unreachable!()
+            };
 
             object = Expression::Member {
                 object: Box::new(object),

@@ -7,6 +7,9 @@ pub enum Statement {
         symbol: String,
         value: Expression,
     },
+    Use {
+        module: String,
+    },
     Conditional {
         condition: Expression,
         body: Box<Statement>,

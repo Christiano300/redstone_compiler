@@ -2,7 +2,7 @@ use std::{collections::HashMap, i32};
 
 use crate::frontend::{Code, Expression, Operator, Parser, Statement};
 
-use super::{instruction, Instruction, InstructionVariant};
+use super::{Instruction, InstructionVariant};
 
 pub enum CompilerError {
     NonexistentVar(String),
@@ -46,6 +46,7 @@ pub fn compile_src(source_code: String) -> Vec<Instruction> {
 }
 
 #[derive(Default, Copy, Clone)]
+#[allow(unused)]
 pub enum RegisterContents {
     Variable(u8),
     Number(i16),
@@ -127,7 +128,7 @@ impl Compiler {
         Err(CompilerError::NonexistentVar(symbol.clone()))
     }
 
-    fn insert_temp_var(&mut self) -> Res<(u8)> {
+    fn insert_temp_var(&mut self) -> Res<u8> {
         let last_scope = self.scopes.last_mut().unwrap();
         let slot = match last_scope.variables.len().try_into() {
             Ok(v) => v,
@@ -161,7 +162,7 @@ impl Compiler {
     }
 
     fn generate_assembly(mut self, body: Vec<Code>) -> Vec<Instruction> {
-        body.into_iter().try_for_each(|line| {
+        let _ = body.into_iter().try_for_each(|line| {
             match line {
                 Code::Expr(expr) => self.eval_expr(&expr),
 
@@ -171,9 +172,9 @@ impl Compiler {
                         self.insert_inline_var(symbol, value);
                         Ok(())
                     }
-                    _ => Ok(()),
+                    _ => todo!("unsupported statement (yet)"),
                 },
-            };
+            }?;
             Ok::<(), CompilerError>(())
         });
 
@@ -209,15 +210,15 @@ impl Compiler {
 
     fn eval_expr(&mut self, expr: &Expression) -> Res {
         match expr {
-            Expression::NumericLiteral(number) => self.put_a(expr)?,
-            Expression::Identifier(ident) => self.put_a(expr)?,
+            Expression::NumericLiteral(..) => self.put_a(expr)?,
+            Expression::Identifier(..) => self.put_a(expr)?,
             Expression::BinaryExpr {
                 left,
                 right,
                 operator,
             } => self.eval_binary_expr(left, right, operator)?,
             Expression::Assignment { symbol, value } => self.eval_assignment(symbol, value)?,
-            _ => {}
+            _ => todo!("unsupported expression (yet)"),
         }
         Ok(())
     }
@@ -237,9 +238,9 @@ impl Compiler {
                 self.eval_expr(right)?;
                 if matches!(operator, Operator::Minus) {
                     self.switch()?;
-                    self.put_a(left);
+                    self.put_a(left)?;
                 } else {
-                    self.put_b(left);
+                    self.put_b(left)?;
                 }
                 self.put_op(operator);
             }
@@ -277,9 +278,9 @@ impl Compiler {
         right: &Expression,
         operator: &Operator,
     ) -> Res {
-        self.put_a(left);
+        self.put_a(left)?;
 
-        self.put_b(right);
+        self.put_b(right)?;
 
         self.put_op(operator);
 
