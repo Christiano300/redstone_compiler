@@ -1,17 +1,19 @@
-use std::{collections::HashMap, i32};
+use std::collections::HashMap;
 
 use crate::frontend::{Code, Expression, Operator, Parser, Statement};
 
-use super::{Instruction, InstructionVariant};
+use super::{module::register_modules, Instruction, InstructionVariant};
 
 pub enum CompilerError {
     NonexistentVar(String),
     TooManyVars,
     ForbiddenInline,
+    UnknownModule(String),
 }
 
 type Res<T = ()> = Result<T, CompilerError>;
 
+#[macro_export]
 macro_rules! instr {
     ($self:ident, $variant:ident, $arg:expr) => {
         $self.push_instr(Instruction {
@@ -29,14 +31,11 @@ macro_rules! instr {
 
 pub fn compile_program(ast: Code) -> Vec<Instruction> {
     match ast {
-        Code::Expr(..) => panic!(),
-        Code::Stmt(stmt) => match stmt {
-            Statement::Program { body } => {
-                let compiler = Compiler::new();
-                compiler.generate_assembly(body)
-            }
-            _ => panic!(),
-        },
+        Code::Stmt(Statement::Program { body }) => {
+            let compiler = Compiler::new();
+            compiler.generate_assembly(body)
+        }
+        _ => panic!(),
     }
 }
 
@@ -63,7 +62,7 @@ pub struct ComputerState {
     pub reg_c: u8,
 }
 
-enum Instr {
+pub enum Instr {
     Code(Instruction),
     Scope(Vec<Instr>),
 }
@@ -75,22 +74,53 @@ struct Scope {
     instructions: Vec<Instr>,
 }
 
+type Handler = dyn FnMut(ModuleCall) -> Res<Vec<Instr>>;
+
+struct Module {
+    name: String,
+    handler: Box<Handler>,
+    active: bool,
+}
+
+pub struct ModuleCall<'a> {
+    method_name: &'a String,
+    args: &'a Vec<Expression>,
+}
+
 pub struct Compiler {
     scopes: Vec<Scope>,
     main_scope: Vec<Instr>,
+    modules: HashMap<String, Module>,
 }
 
 impl Compiler {
     fn new() -> Compiler {
-        Compiler {
+        let mut compiler = Compiler {
             scopes: vec![Scope {
                 start_state: Default::default(),
                 variables: HashMap::new(),
                 inline_variables: HashMap::new(),
                 instructions: vec![],
             }],
+            modules: HashMap::new(),
             main_scope: vec![],
-        }
+        };
+        register_modules(&mut compiler);
+        compiler
+    }
+
+    pub fn register_module<F>(&mut self, name: &'static str, handler: F)
+    where
+        F: FnMut(ModuleCall) -> Res<Vec<Instr>> + 'static,
+    {
+        self.modules.insert(
+            name.to_string(),
+            Module {
+                name: name.to_string(),
+                handler: Box::from(handler),
+                active: false,
+            },
+        );
     }
 
     fn insert_inline_var(&mut self, symbol: String, value: i16) {
@@ -172,7 +202,16 @@ impl Compiler {
                         self.insert_inline_var(symbol, value);
                         Ok(())
                     }
-                    _ => todo!("unsupported statement (yet)"),
+                    Statement::Use { module } => {
+                        if !self.modules.contains_key(&module) {
+                            return Err(CompilerError::UnknownModule(module));
+                        }
+                        self.modules
+                            .entry(module)
+                            .and_modify(|module| module.active = true);
+                        Ok(())
+                    }
+                    _ => todo!("unsupported statement {:?}", stmt),
                 },
             }?;
             Ok::<(), CompilerError>(())
@@ -218,7 +257,8 @@ impl Compiler {
                 operator,
             } => self.eval_binary_expr(left, right, operator)?,
             Expression::Assignment { symbol, value } => self.eval_assignment(symbol, value)?,
-            _ => todo!("unsupported expression (yet)"),
+            Expression::Call { args, function } => self.eval_call(function, args)?,
+            _ => todo!("unsupported expression: {:?}", expr),
         }
         Ok(())
     }
@@ -342,6 +382,35 @@ impl Compiler {
             }
             _ => {}
         }
+        Ok(())
+    }
+
+    fn eval_call(&mut self, function: &Expression, args: &Vec<Expression>) -> Res {
+        use Expression::*;
+        let module;
+        let method;
+        match function {
+            Member { object, property } => match object.as_ref() {
+                Identifier(symbol) => {
+                    module = symbol;
+                    method = property;
+                }
+                _ => return Err(CompilerError::UnknownModule(format!("{object:?}"))),
+            },
+            _ => return Err(CompilerError::UnknownModule(format!("{function:?}"))),
+        }
+
+        let m = self.modules.get_mut(module);
+        let instructions = match m {
+            Some(module) => (module.handler)(ModuleCall {
+                method_name: method,
+                args,
+            })?,
+            None => return Err(CompilerError::UnknownModule(module.clone())),
+        };
+        let last_scope = self.scopes.last_mut().unwrap();
+        last_scope.instructions.extend(instructions);
+
         Ok(())
     }
 }

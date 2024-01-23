@@ -1,7 +1,11 @@
-use super::Compiler;
+use super::{compiler::ModuleCall, Compiler, CompilerError, Instr};
 
-trait Module {
-    fn get_name(&self) -> String;
+type Res<T = ()> = Result<T, CompilerError>;
 
-    fn compile(&mut self, compiler: &mut Compiler);
+fn io_module(call: ModuleCall) -> Res<Vec<Instr>> {
+    Ok(vec![])
+}
+
+pub fn register_modules(compiler: &mut Compiler) {
+    compiler.register_module("io", io_module)
 }
