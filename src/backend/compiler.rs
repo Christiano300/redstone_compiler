@@ -4,11 +4,15 @@ use crate::frontend::{Code, Expression, Operator, Parser, Statement};
 
 use super::{module::MODULES, Instruction, InstructionVariant};
 
+#[derive(Debug)]
 pub enum CompilerError {
     NonexistentVar(String),
     TooManyVars,
     ForbiddenInline,
     UnknownModule(String),
+    UnknownMethod(String),
+    InvalidArgs(String),
+    SomethingElseWentWrong(String),
 }
 
 type Res<T = ()> = Result<T, CompilerError>;
@@ -29,7 +33,7 @@ macro_rules! instr {
     };
 }
 
-pub fn compile_program(ast: Code) -> Vec<Instruction> {
+pub fn compile_program(ast: Code) -> Res<Vec<Instruction>> {
     match ast {
         Code::Stmt(Statement::Program { body }) => {
             let compiler = Compiler::new();
@@ -39,7 +43,7 @@ pub fn compile_program(ast: Code) -> Vec<Instruction> {
     }
 }
 
-pub fn compile_src(source_code: String) -> Vec<Instruction> {
+pub fn compile_src(source_code: String) -> Res<Vec<Instruction>> {
     let mut parser = Parser::new();
     compile_program(parser.produce_ast(source_code).unwrap())
 }
@@ -75,8 +79,8 @@ struct Scope {
 }
 
 pub struct ModuleCall<'a> {
-    method_name: &'a String,
-    args: &'a Vec<Expression>,
+    pub method_name: &'a String,
+    pub args: &'a Vec<Expression>,
 }
 
 pub struct Compiler {
@@ -149,7 +153,8 @@ impl Compiler {
         last_scope.variables.remove(&format!(" {}", index));
     }
 
-    fn push_instr(&mut self, instr: Instruction) {
+    /// use the "instr" macro
+    pub fn push_instr(&mut self, instr: Instruction) {
         let last_scope = self.scopes.last_mut().unwrap();
         last_scope.instructions.push(Instr::Code(instr));
     }
@@ -167,8 +172,8 @@ impl Compiler {
         })
     }
 
-    fn generate_assembly(mut self, body: Vec<Code>) -> Vec<Instruction> {
-        let _ = body.into_iter().try_for_each(|line| {
+    fn generate_assembly(mut self, body: Vec<Code>) -> Res<Vec<Instruction>> {
+        body.into_iter().try_for_each(|line| {
             match line {
                 Code::Expr(expr) => self.eval_expr(&expr),
 
@@ -180,20 +185,24 @@ impl Compiler {
                     }
                     Statement::Use { module } => {
                         if !MODULES.with(|modules| modules.borrow().contains_key(&module)) {
-                            return Err(CompilerError::UnknownModule(module));
+                            return Err(CompilerError::UnknownModule(format!(
+                                "{}, that module doesn't exist",
+                                module
+                            )));
                         }
+                        self.modules.insert(module);
                         Ok(())
                     }
                     _ => todo!("unsupported statement {:?}", stmt),
                 },
             }?;
             Ok::<(), CompilerError>(())
-        });
+        })?;
 
         self.main_scope
             .push(Instr::Scope(self.scopes.pop().unwrap().instructions));
 
-        self.get_instructions()
+        Ok(self.get_instructions())
     }
 
     fn eval_after_inline(&mut self, expr: Expression) -> Res<i16> {
@@ -220,7 +229,7 @@ impl Compiler {
         }
     }
 
-    fn eval_expr(&mut self, expr: &Expression) -> Res {
+    pub fn eval_expr(&mut self, expr: &Expression) -> Res {
         match expr {
             Expression::NumericLiteral(..) => self.put_a(expr)?,
             Expression::Identifier(..) => self.put_a(expr)?,
@@ -312,8 +321,20 @@ impl Compiler {
         }
     }
 
+    /// tries to get the value known at compile time
+    pub fn try_get_constant(&self, value: &Expression) -> Option<i16> {
+        match value {
+            Expression::NumericLiteral(value) => Some(*value),
+            Expression::Identifier(symbol) => match self.get_inline_var(symbol) {
+                Ok(value) => Some(value),
+                Err(_) => None,
+            },
+            _ => None,
+        }
+    }
+
     /// puts a into b
-    fn switch(&mut self) -> Res {
+    pub fn switch(&mut self) -> Res {
         let temp = self.insert_temp_var()?;
         instr!(self, SVA, temp);
         self.cleanup_temp_var(temp);
@@ -321,41 +342,59 @@ impl Compiler {
     }
 
     /// expr should be either NumericLiteral or Identifier
-    fn put_b(&mut self, expr: &Expression) -> Res {
+    pub fn put_a(&mut self, expr: &Expression) -> Res {
         use Expression::*;
         match expr {
             NumericLiteral(value) => {
-                let bytes = value.to_le_bytes();
-                instr!(self, LBL, bytes[0]);
-                if bytes[1] != 0 {
-                    instr!(self, LBH, bytes[1]);
-                }
+                self.put_a_number(*value);
             }
-            Identifier(symbol) => {
-                instr!(self, LB, self.get_var(symbol)?);
+            Identifier(symbol) => match self.get_inline_var(symbol) {
+                Ok(value) => self.put_a_number(value),
+                Err(_) => instr!(self, LA, self.get_var(symbol)?),
+            },
+            _ => {
+                return Err(CompilerError::SomethingElseWentWrong(
+                    "put_a called on wrong expression".to_string(),
+                ))
             }
-            _ => {}
         }
         Ok(())
     }
 
     /// expr should be either NumericLiteral or Identifier
-    fn put_a(&mut self, expr: &Expression) -> Res {
+    pub fn put_b(&mut self, expr: &Expression) -> Res {
         use Expression::*;
         match expr {
             NumericLiteral(value) => {
-                let bytes = value.to_le_bytes();
-                instr!(self, LAL, bytes[0]);
-                if bytes[1] != 0 {
-                    instr!(self, LAH, bytes[1]);
-                }
+                self.put_b_number(*value);
             }
-            Identifier(symbol) => {
-                instr!(self, LA, self.get_var(symbol)?);
+            Identifier(symbol) => match self.get_inline_var(symbol) {
+                Ok(value) => self.put_b_number(value),
+                Err(_) => instr!(self, LB, self.get_var(symbol)?),
+            },
+            _ => {
+                return Err(CompilerError::SomethingElseWentWrong(
+                    "put_a called on wrong expression".to_string(),
+                ))
             }
-            _ => {}
         }
         Ok(())
+    }
+
+    fn put_a_number(&mut self, value: i16) {
+        let bytes = value.to_le_bytes();
+        instr!(self, LAL, bytes[0]);
+        if bytes[1] != 0 {
+            instr!(self, LAH, bytes[1]);
+        }
+    }
+
+    fn put_b_number(&mut self, value: i16) {
+        let bytes = value.to_le_bytes();
+        instr!(self, LBL, bytes[0]);
+        if bytes[1] != 0 {
+            instr!(self, LBH, bytes[1]);
+        }
     }
 
     fn eval_call(&mut self, function: &Expression, args: &Vec<Expression>) -> Res {
@@ -368,23 +407,35 @@ impl Compiler {
                     module = symbol;
                     method = property;
                 }
-                _ => return Err(CompilerError::UnknownModule(format!("{object:?}"))),
+                _ => {
+                    return Err(CompilerError::UnknownModule(format!(
+                        "{object:?}, you cant use that as a module"
+                    )))
+                }
             },
-            _ => return Err(CompilerError::UnknownModule(format!("{function:?}"))),
+            _ => {
+                return Err(CompilerError::UnknownMethod(format!(
+                    "{function:?}, you cant use that as a function"
+                )))
+            }
+        }
+        if !self.modules.contains(module) {
+            return Err(CompilerError::UnknownModule(format!(
+                "{}, not loaded in",
+                module.clone()
+            )));
         }
 
         // don't ask
         MODULES.with(|modules| {
-            match modules.borrow_mut().get_mut(module) {
-                Some(module) => (module.handler)(
-                    self,
-                    ModuleCall {
-                        method_name: method,
-                        args,
-                    },
-                )?,
-                None => return Err(CompilerError::UnknownModule(module.clone())),
-            };
+            (modules.borrow_mut().get_mut(module).unwrap().handler)(
+                self,
+                ModuleCall {
+                    method_name: method,
+                    args,
+                },
+            )?;
+
             Ok(())
         })
     }

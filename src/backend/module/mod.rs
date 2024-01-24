@@ -1,3 +1,5 @@
+mod io;
+
 use std::cell::RefCell;
 use std::collections::HashMap;
 
@@ -5,7 +7,7 @@ use std::collections::HashMap;
 thread_local! {
     pub static MODULES: RefCell<HashMap<String, Module>> = RefCell::new({
         let mut map = HashMap::new();
-        register_module(&mut map, "io", io_module);
+        register_module(&mut map, "io", io::io_module);
         map
     })
 }
@@ -33,7 +35,3 @@ where
 }
 
 type Res<T = ()> = Result<T, CompilerError>;
-
-fn io_module(compiler: &mut Compiler, call: ModuleCall) -> Res {
-    Ok(())
-}
