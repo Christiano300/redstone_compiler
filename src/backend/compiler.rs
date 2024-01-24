@@ -1,8 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::frontend::{Code, Expression, Operator, Parser, Statement};
 
-use super::{module::register_modules, Instruction, InstructionVariant};
+use super::{module::MODULES, Instruction, InstructionVariant};
 
 pub enum CompilerError {
     NonexistentVar(String),
@@ -74,14 +74,6 @@ struct Scope {
     instructions: Vec<Instr>,
 }
 
-type Handler = dyn FnMut(ModuleCall) -> Res<Vec<Instr>>;
-
-struct Module {
-    name: String,
-    handler: Box<Handler>,
-    active: bool,
-}
-
 pub struct ModuleCall<'a> {
     method_name: &'a String,
     args: &'a Vec<Expression>,
@@ -90,37 +82,21 @@ pub struct ModuleCall<'a> {
 pub struct Compiler {
     scopes: Vec<Scope>,
     main_scope: Vec<Instr>,
-    modules: HashMap<String, Module>,
+    modules: HashSet<String>,
 }
 
 impl Compiler {
     fn new() -> Compiler {
-        let mut compiler = Compiler {
+        Compiler {
             scopes: vec![Scope {
                 start_state: Default::default(),
                 variables: HashMap::new(),
                 inline_variables: HashMap::new(),
                 instructions: vec![],
             }],
-            modules: HashMap::new(),
+            modules: HashSet::new(),
             main_scope: vec![],
-        };
-        register_modules(&mut compiler);
-        compiler
-    }
-
-    pub fn register_module<F>(&mut self, name: &'static str, handler: F)
-    where
-        F: FnMut(ModuleCall) -> Res<Vec<Instr>> + 'static,
-    {
-        self.modules.insert(
-            name.to_string(),
-            Module {
-                name: name.to_string(),
-                handler: Box::from(handler),
-                active: false,
-            },
-        );
+        }
     }
 
     fn insert_inline_var(&mut self, symbol: String, value: i16) {
@@ -203,12 +179,9 @@ impl Compiler {
                         Ok(())
                     }
                     Statement::Use { module } => {
-                        if !self.modules.contains_key(&module) {
+                        if !MODULES.with(|modules| modules.borrow().contains_key(&module)) {
                             return Err(CompilerError::UnknownModule(module));
                         }
-                        self.modules
-                            .entry(module)
-                            .and_modify(|module| module.active = true);
                         Ok(())
                     }
                     _ => todo!("unsupported statement {:?}", stmt),
@@ -400,17 +373,19 @@ impl Compiler {
             _ => return Err(CompilerError::UnknownModule(format!("{function:?}"))),
         }
 
-        let m = self.modules.get_mut(module);
-        let instructions = match m {
-            Some(module) => (module.handler)(ModuleCall {
-                method_name: method,
-                args,
-            })?,
-            None => return Err(CompilerError::UnknownModule(module.clone())),
-        };
-        let last_scope = self.scopes.last_mut().unwrap();
-        last_scope.instructions.extend(instructions);
-
-        Ok(())
+        // don't ask
+        MODULES.with(|modules| {
+            match modules.borrow_mut().get_mut(module) {
+                Some(module) => (module.handler)(
+                    self,
+                    ModuleCall {
+                        method_name: method,
+                        args,
+                    },
+                )?,
+                None => return Err(CompilerError::UnknownModule(module.clone())),
+            };
+            Ok(())
+        })
     }
 }
