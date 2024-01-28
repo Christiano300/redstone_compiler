@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::frontend::{Code, Expression, Operator, Parser, Statement};
 
-use super::{module::MODULES, Instruction, InstructionVariant};
+use super::{module::MODULES, Instruction};
 
 #[derive(Debug)]
 pub enum CompilerError {
@@ -19,18 +19,20 @@ type Res<T = ()> = Result<T, CompilerError>;
 
 #[macro_export]
 macro_rules! instr {
-    ($self:ident, $variant:ident, $arg:expr) => {
+    ($self:ident, $variant:ident, $arg:expr) => {{
+        use $crate::backend::{Instruction, InstructionVariant};
         $self.push_instr(Instruction {
             variant: &InstructionVariant::$variant,
             arg: Some($arg),
         })
-    };
-    ($self:ident, $variant:ident) => {
+    }};
+    ($self:ident, $variant:ident) => {{
+        use $crate::backend::{Instruction, InstructionVariant};
         $self.push_instr(Instruction {
             variant: &InstructionVariant::$variant,
             arg: None,
         })
-    };
+    }};
 }
 
 pub fn compile_program(ast: Code) -> Res<Vec<Instruction>> {
@@ -120,6 +122,9 @@ impl Compiler {
 
     fn insert_var(&mut self, symbol: &str) -> Res<u8> {
         let last_scope = self.scopes.last_mut().unwrap();
+        if let Some(slot) = last_scope.variables.get(symbol) {
+            return Ok(*slot);
+        }
         let slot = match last_scope.variables.len().try_into() {
             Ok(v) => v,
             Err(_) => return Err(CompilerError::TooManyVars),
@@ -156,6 +161,7 @@ impl Compiler {
     /// use the "instr" macro
     pub fn push_instr(&mut self, instr: Instruction) {
         let last_scope = self.scopes.last_mut().unwrap();
+        instr.execute(&mut last_scope.start_state);
         last_scope.instructions.push(Instr::Code(instr));
     }
 

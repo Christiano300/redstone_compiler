@@ -156,7 +156,7 @@ impl Parser {
     }
 
     fn parse_assignment(&mut self) -> Result<Expression, String> {
-        let left = self.parse_additive()?;
+        let left = self.parse_i_assignment()?;
 
         if matches!(self.at(), Token::Equals) {
             if !matches!(left, Expression::Identifier(..)) {
@@ -170,6 +170,34 @@ impl Parser {
             return Ok(Expression::Assignment {
                 symbol: name,
                 value: Box::new(value),
+            });
+        }
+
+        Ok(left)
+    }
+
+    fn parse_i_assignment(&mut self) -> Result<Expression, String> {
+        let left = self.parse_additive()?;
+
+        if matches!(self.at(), Token::IOperator(_)) {
+            if !matches!(left, Expression::Identifier(..)) {
+                return Err("can only assign to identifiers".to_string());
+            }
+            let name = match left {
+                Expression::Identifier(name) => name,
+                _ => return Err("can only assign to identifiers".to_string()),
+            };
+            let Token::IOperator(operator) = self.eat() else {
+                unreachable!()
+            };
+            let value = self.parse_i_assignment()?;
+            return Ok(Expression::Assignment {
+                symbol: name.clone(),
+                value: Box::new(Expression::BinaryExpr {
+                    left: Box::new(Expression::Identifier(name)),
+                    right: Box::new(value),
+                    operator,
+                }),
             });
         }
 

@@ -1,5 +1,5 @@
 use crate::{
-    backend::{Compiler, CompilerError, Instruction, InstructionVariant, ModuleCall},
+    backend::{Compiler, CompilerError, ModuleCall},
     instr,
 };
 

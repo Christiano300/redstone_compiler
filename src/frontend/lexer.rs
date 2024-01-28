@@ -27,6 +27,7 @@ pub enum Token {
     Comma,
     Dot,
     BinaryOperator(Operator),
+    IOperator(Operator),
     EqOperator(EqOp),
     Inline,
     If,
@@ -60,7 +61,18 @@ pub fn tokenize(source_code: String) -> Result<Vec<Token>, String> {
             '(' => tokens.push(T::OpenParen),
             ')' => tokens.push(T::CloseParen),
             '+' | '-' | '*' | '&' | '|' | '^' => {
-                tokens.push(T::BinaryOperator(*OPERATORS.get(&char).unwrap()))
+                let equals_after = matches!(src.peek(), Some('='));
+
+                let operator = *OPERATORS.get(&char).unwrap();
+                tokens.push(if equals_after {
+                    T::IOperator(operator)
+                } else {
+                    T::BinaryOperator(operator)
+                });
+
+                if equals_after {
+                    src.next();
+                }
             }
             ',' => tokens.push(T::Comma),
             '.' => tokens.push(T::Dot),

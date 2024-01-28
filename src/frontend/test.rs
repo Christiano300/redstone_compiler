@@ -31,4 +31,17 @@ mod lexer_tests {
             .collect();
         assert_eq!(Ok(expected), tokenize(code.to_string()))
     }
+
+    #[test]
+    fn iop() {
+        let code = "+= -= *= &= ^= |=";
+        use Operator::*;
+        let ops = vec![Plus, Minus, Mult, And, Xor, Or];
+        let expected: Vec<_> = ops
+            .into_iter()
+            .map(Token::IOperator)
+            .chain(once(Token::Eof))
+            .collect();
+        assert_eq!(Ok(expected), tokenize(code.to_string()))
+    }
 }
