@@ -50,7 +50,7 @@ pub fn compile_src(source_code: String) -> Res<Vec<Instruction>> {
     compile_program(parser.produce_ast(source_code).unwrap())
 }
 
-#[derive(Default, Copy, Clone)]
+#[derive(Default, Copy, Clone, Debug)]
 #[allow(unused)]
 pub enum RegisterContents {
     Variable(u8),
@@ -61,7 +61,7 @@ pub enum RegisterContents {
     Unknown,
 }
 
-#[derive(Default, Copy, Clone)]
+#[derive(Default, Copy, Clone, Debug)]
 pub struct ComputerState {
     pub reg_a: RegisterContents,
     pub reg_b: RegisterContents,
@@ -106,7 +106,7 @@ impl Compiler {
     }
 
     fn insert_inline_var(&mut self, symbol: String, value: i16) {
-        let last_scope = self.scopes.last_mut().unwrap();
+        let last_scope = self.last_scope();
         last_scope.inline_variables.insert(symbol, value);
     }
 
@@ -176,6 +176,10 @@ impl Compiler {
             Instr::Code(instr) => into.push(instr),
             Instr::Scope(s) => Compiler::resolve_scope(s, into),
         })
+    }
+
+    fn last_scope(&mut self) -> &mut Scope {
+        self.scopes.last_mut().unwrap()
     }
 
     fn generate_assembly(mut self, body: Vec<Code>) -> Res<Vec<Instruction>> {
@@ -356,7 +360,15 @@ impl Compiler {
             }
             Identifier(symbol) => match self.get_inline_var(symbol) {
                 Ok(value) => self.put_a_number(value),
-                Err(_) => instr!(self, LA, self.get_var(symbol)?),
+                Err(_) => {
+                    let var = self.get_var(symbol)?;
+                    if let RegisterContents::Variable(v) = self.last_scope().start_state.reg_a {
+                        if v == var {
+                            return Ok(());
+                        }
+                    }
+                    instr!(self, LA, var)
+                }
             },
             _ => {
                 return Err(CompilerError::SomethingElseWentWrong(
@@ -376,7 +388,16 @@ impl Compiler {
             }
             Identifier(symbol) => match self.get_inline_var(symbol) {
                 Ok(value) => self.put_b_number(value),
-                Err(_) => instr!(self, LB, self.get_var(symbol)?),
+                Err(_) => {
+                    let var = self.get_var(symbol)?;
+                    if let RegisterContents::Variable(v) = dbg!(self.last_scope().start_state).reg_b
+                    {
+                        if v == var {
+                            return Ok(());
+                        }
+                    }
+                    instr!(self, LB, var)
+                }
             },
             _ => {
                 return Err(CompilerError::SomethingElseWentWrong(

@@ -118,11 +118,12 @@ impl Instruction {
     pub fn execute(&self, on: &mut ComputerState) {
         use InstructionVariant::*;
         match self.variant {
-            LA => on.reg_a = RegisterContents::Variable(self.arg.unwrap_or(0)),
-            LB => on.reg_b = RegisterContents::Variable(self.arg.unwrap_or(0)),
+            LA => on.reg_a = RegisterContents::Variable(self.arg.unwrap_or(17)),
+            LB => on.reg_b = RegisterContents::Variable(self.arg.unwrap_or(17)),
             LAL | LBL | LAH | LBH => on.reg_a = RegisterContents::Number(0),
             ADD | SUB | MUL | AND | OR | XOR | SUP | SDN => on.reg_a = RegisterContents::Result(0),
             LCL => on.reg_c = self.arg.unwrap_or(0),
+            SVA => on.reg_a = RegisterContents::Variable(self.arg.unwrap_or(21)),
             _ => {}
         }
     }
