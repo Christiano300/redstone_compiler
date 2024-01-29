@@ -10,8 +10,6 @@ use backend::compile_program;
 #[allow(dead_code)]
 mod backend;
 mod frontend;
-#[allow(dead_code)]
-mod runtime;
 
 fn main() -> io::Result<()> {
     let mut parser = Parser::new();

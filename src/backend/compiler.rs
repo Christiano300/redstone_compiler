@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::frontend::{Code, Expression, Operator, Parser, Statement};
+use crate::frontend::{Expression, Operator, Parser};
 
 use super::{module::MODULES, Instruction};
 
@@ -19,25 +19,23 @@ type Res<T = ()> = Result<T, CompilerError>;
 
 #[macro_export]
 macro_rules! instr {
-    ($self:ident, $variant:ident, $arg:expr) => {{
-        use $crate::backend::{Instruction, InstructionVariant};
-        $self.push_instr(Instruction {
-            variant: &InstructionVariant::$variant,
+    ($self:ident, $variant:ident, $arg:expr) => {
+        $self.push_instr($crate::backend::Instruction {
+            variant: &$crate::backend::InstructionVariant::$variant,
             arg: Some($arg),
         })
-    }};
+    };
     ($self:ident, $variant:ident) => {{
-        use $crate::backend::{Instruction, InstructionVariant};
-        $self.push_instr(Instruction {
-            variant: &InstructionVariant::$variant,
+        $self.push_instr($crate::backend::Instruction {
+            variant: &$crate::backend::InstructionVariant::$variant,
             arg: None,
         })
     }};
 }
 
-pub fn compile_program(ast: Code) -> Res<Vec<Instruction>> {
+pub fn compile_program(ast: Expression) -> Res<Vec<Instruction>> {
     match ast {
-        Code::Stmt(Statement::Program { body }) => {
+        Expression::Program(body) => {
             let compiler = Compiler::new();
             compiler.generate_assembly(body)
         }
@@ -182,29 +180,25 @@ impl Compiler {
         self.scopes.last_mut().unwrap()
     }
 
-    fn generate_assembly(mut self, body: Vec<Code>) -> Res<Vec<Instruction>> {
+    fn generate_assembly(mut self, body: Vec<Expression>) -> Res<Vec<Instruction>> {
         body.into_iter().try_for_each(|line| {
             match line {
-                Code::Expr(expr) => self.eval_expr(&expr),
-
-                Code::Stmt(stmt) => match stmt {
-                    Statement::InlineDeclaration { symbol, value } => {
-                        let value = self.eval_after_inline(value)?;
-                        self.insert_inline_var(symbol, value);
-                        Ok(())
+                Expression::InlineDeclaration { symbol, value } => {
+                    let value = self.eval_after_inline(&value)?;
+                    self.insert_inline_var(symbol, value);
+                    Ok(())
+                }
+                Expression::Use(module) => {
+                    if !MODULES.with(|modules| modules.borrow().contains_key(&module)) {
+                        return Err(CompilerError::UnknownModule(format!(
+                            "{}, that module doesn't exist",
+                            module
+                        )));
                     }
-                    Statement::Use { module } => {
-                        if !MODULES.with(|modules| modules.borrow().contains_key(&module)) {
-                            return Err(CompilerError::UnknownModule(format!(
-                                "{}, that module doesn't exist",
-                                module
-                            )));
-                        }
-                        self.modules.insert(module);
-                        Ok(())
-                    }
-                    _ => todo!("unsupported statement {:?}", stmt),
-                },
+                    self.modules.insert(module);
+                    Ok(())
+                }
+                expr => self.eval_expr(&expr),
             }?;
             Ok::<(), CompilerError>(())
         })?;
@@ -215,16 +209,16 @@ impl Compiler {
         Ok(self.get_instructions())
     }
 
-    fn eval_after_inline(&mut self, expr: Expression) -> Res<i16> {
+    fn eval_after_inline(&mut self, expr: &Expression) -> Res<i16> {
         match expr {
-            Expression::Identifier(name) => self.get_inline_var(&name),
+            Expression::Identifier(name) => self.get_inline_var(name),
             Expression::BinaryExpr {
                 left,
                 right,
                 operator,
             } => {
-                let left = self.eval_after_inline(*left)?;
-                let right = self.eval_after_inline(*right)?;
+                let left = self.eval_after_inline(left)?;
+                let right = self.eval_after_inline(right)?;
                 Ok(match operator {
                     Operator::Plus => left + right,
                     Operator::Minus => left - right,
@@ -234,15 +228,15 @@ impl Compiler {
                     Operator::Xor => left ^ right,
                 })
             }
-            Expression::NumericLiteral(value) => Ok(value),
+            Expression::NumericLiteral(value) => Ok(*value),
             _ => Err(CompilerError::ForbiddenInline),
         }
     }
 
     pub fn eval_expr(&mut self, expr: &Expression) -> Res {
         match expr {
-            Expression::NumericLiteral(..) => self.put_a(expr)?,
-            Expression::Identifier(..) => self.put_a(expr)?,
+            Expression::NumericLiteral(..) => self.put_into_a(expr)?,
+            Expression::Identifier(..) => self.put_into_a(expr)?,
             Expression::BinaryExpr {
                 left,
                 right,
@@ -261,24 +255,27 @@ impl Compiler {
         right: &Expression,
         operator: &Operator,
     ) -> Res {
-        use Expression::*;
+        use Expression as E;
         match (left, right) {
-            (Identifier(..) | NumericLiteral(..), Identifier(..) | NumericLiteral(..)) => {
+            (
+                E::Identifier(..) | E::NumericLiteral(..),
+                E::Identifier(..) | E::NumericLiteral(..),
+            ) => {
                 self.eval_simple_expr(left, right, operator)?;
             }
-            (Identifier(..) | NumericLiteral(..), _) => {
+            (E::Identifier(..) | E::NumericLiteral(..), _) => {
                 self.eval_expr(right)?;
                 if matches!(operator, Operator::Minus) {
                     self.switch()?;
-                    self.put_a(left)?;
+                    self.put_into_a(left)?;
                 } else {
-                    self.put_b(left)?;
+                    self.put_into_b(left)?;
                 }
                 self.put_op(operator);
             }
-            (_, Identifier(..) | NumericLiteral(..)) => {
+            (_, E::Identifier(..) | E::NumericLiteral(..)) => {
                 self.eval_expr(left)?;
-                self.put_b(right)?;
+                self.put_into_b(right)?;
                 self.put_op(operator);
             }
             _ => {
@@ -310,9 +307,9 @@ impl Compiler {
         right: &Expression,
         operator: &Operator,
     ) -> Res {
-        self.put_a(left)?;
+        self.put_into_a(left)?;
 
-        self.put_b(right)?;
+        self.put_into_b(right)?;
 
         self.put_op(operator);
 
@@ -320,14 +317,14 @@ impl Compiler {
     }
 
     fn put_op(&mut self, operator: &Operator) {
-        use Operator::*;
+        use Operator as O;
         match operator {
-            Plus => instr!(self, ADD),
-            Minus => instr!(self, SUB),
-            Mult => instr!(self, MUL),
-            And => instr!(self, AND),
-            Or => instr!(self, OR),
-            Xor => instr!(self, XOR),
+            O::Plus => instr!(self, ADD),
+            O::Minus => instr!(self, SUB),
+            O::Mult => instr!(self, MUL),
+            O::And => instr!(self, AND),
+            O::Or => instr!(self, OR),
+            O::Xor => instr!(self, XOR),
         }
     }
 
@@ -352,13 +349,13 @@ impl Compiler {
     }
 
     /// expr should be either NumericLiteral or Identifier
-    pub fn put_a(&mut self, expr: &Expression) -> Res {
-        use Expression::*;
+    pub fn put_into_a(&mut self, expr: &Expression) -> Res {
+        use Expression as E;
         match expr {
-            NumericLiteral(value) => {
+            E::NumericLiteral(value) => {
                 self.put_a_number(*value);
             }
-            Identifier(symbol) => match self.get_inline_var(symbol) {
+            E::Identifier(symbol) => match self.get_inline_var(symbol) {
                 Ok(value) => self.put_a_number(value),
                 Err(_) => {
                     let var = self.get_var(symbol)?;
@@ -380,18 +377,17 @@ impl Compiler {
     }
 
     /// expr should be either NumericLiteral or Identifier
-    pub fn put_b(&mut self, expr: &Expression) -> Res {
-        use Expression::*;
+    pub fn put_into_b(&mut self, expr: &Expression) -> Res {
+        use Expression as E;
         match expr {
-            NumericLiteral(value) => {
+            E::NumericLiteral(value) => {
                 self.put_b_number(*value);
             }
-            Identifier(symbol) => match self.get_inline_var(symbol) {
+            E::Identifier(symbol) => match self.get_inline_var(symbol) {
                 Ok(value) => self.put_b_number(value),
                 Err(_) => {
                     let var = self.get_var(symbol)?;
-                    if let RegisterContents::Variable(v) = dbg!(self.last_scope().start_state).reg_b
-                    {
+                    if let RegisterContents::Variable(v) = self.last_scope().start_state.reg_b {
                         if v == var {
                             return Ok(());
                         }
@@ -425,12 +421,12 @@ impl Compiler {
     }
 
     fn eval_call(&mut self, function: &Expression, args: &Vec<Expression>) -> Res {
-        use Expression::*;
+        use Expression as E;
         let module;
         let method;
         match function {
-            Member { object, property } => match object.as_ref() {
-                Identifier(symbol) => {
+            E::Member { object, property } => match object.as_ref() {
+                E::Identifier(symbol) => {
                     module = symbol;
                     method = property;
                 }

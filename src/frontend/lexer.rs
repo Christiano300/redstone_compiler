@@ -1,7 +1,6 @@
 use once_cell::sync::Lazy;
 
-use super::{EqualityOperator as EqOp, EQ_OPERATORS};
-use crate::frontend::{Operator, OPERATORS};
+use super::{EqualityOperator as EqOp, Operator, EQ_OPERATORS, OPERATORS};
 use std::collections::HashMap;
 
 static KEYWORDS: Lazy<HashMap<String, Token>> = Lazy::new(|| {

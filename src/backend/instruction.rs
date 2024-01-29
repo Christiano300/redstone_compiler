@@ -1,7 +1,7 @@
-use core::panic;
-use std::fmt::Debug;
-use std::fmt::{self};
-use std::u8;
+use std::{
+    fmt::{self, Debug},
+    u8,
+};
 
 use table_enum::table_enum;
 
@@ -100,8 +100,7 @@ impl Debug for Instruction {
     }
 }
 
-use super::compiler::RegisterContents;
-use super::ComputerState;
+use super::{compiler::RegisterContents, ComputerState};
 
 impl Instruction {
     pub fn to_bin(&self) -> u16 {
@@ -116,14 +115,16 @@ impl Instruction {
     }
 
     pub fn execute(&self, on: &mut ComputerState) {
-        use InstructionVariant::*;
+        use InstructionVariant as IV;
         match self.variant {
-            LA => on.reg_a = RegisterContents::Variable(self.arg.unwrap_or(17)),
-            LB => on.reg_b = RegisterContents::Variable(self.arg.unwrap_or(17)),
-            LAL | LBL | LAH | LBH => on.reg_a = RegisterContents::Number(0),
-            ADD | SUB | MUL | AND | OR | XOR | SUP | SDN => on.reg_a = RegisterContents::Result(0),
-            LCL => on.reg_c = self.arg.unwrap_or(0),
-            SVA => on.reg_a = RegisterContents::Variable(self.arg.unwrap_or(21)),
+            IV::LA => on.reg_a = RegisterContents::Variable(self.arg.unwrap_or(17)),
+            IV::LB => on.reg_b = RegisterContents::Variable(self.arg.unwrap_or(17)),
+            IV::LAL | IV::LBL | IV::LAH | IV::LBH => on.reg_a = RegisterContents::Number(0),
+            IV::ADD | IV::SUB | IV::MUL | IV::AND | IV::OR | IV::XOR | IV::SUP | IV::SDN => {
+                on.reg_a = RegisterContents::Result(0)
+            }
+            IV::LCL => on.reg_c = self.arg.unwrap_or(0),
+            IV::SVA => on.reg_a = RegisterContents::Variable(self.arg.unwrap_or(21)),
             _ => {}
         }
     }
