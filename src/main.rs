@@ -20,21 +20,18 @@ fn main() -> io::Result<()> {
     }
 
     let path = format!("programs/{program}/{program}.🖥️");
-    let mut file = match File::open(path.clone()) {
-        Ok(file) => file,
-        Err(_) => {
-            if input("Program doesn't exist, create? [Y/n]: ")?.as_str() == "n" {
-                return Ok(());
-            }
-            create_dir_all(format!("programs/{program}"))?;
-            return fs::write(path, "");
+    let Ok(mut file) = File::open(path.clone()) else {
+        if input("Program doesn't exist, create? [Y/n]: ")?.as_str() == "n" {
+            return Ok(());
         }
+        create_dir_all(format!("programs/{program}"))?;
+        return fs::write(path, "");
     };
 
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
 
-    let ast = match parser.produce_ast(contents) {
+    let ast = match parser.produce_ast(contents.as_str()) {
         Ok(ast) => ast,
         Err(err) => {
             println!("{err:#?}");
@@ -43,20 +40,20 @@ fn main() -> io::Result<()> {
     };
 
     let assembly = match compile_program(ast) {
-        Ok(asm) => asm,
+        Ok(assembly) => assembly,
         Err(err) => {
             println!("{err:#?}");
             return Ok(());
         }
     };
 
-    let mut asm = String::new();
+    let mut asm_string = String::new();
     assembly
         .into_iter()
         .map(|instr| format!("{instr}\n"))
-        .for_each(|line| asm.push_str(line.as_str()));
+        .for_each(|line| asm_string.push_str(line.as_str()));
 
-    fs::write(format!("programs/{program}/{program}.asm"), asm)?;
+    fs::write(format!("programs/{program}/{program}.asm"), asm_string)?;
 
     Ok(())
 }
@@ -77,10 +74,15 @@ fn repl(parser: &mut Parser) -> io::Result<()> {
             return io::Result::Ok(());
         }
 
-        let ast = parser.produce_ast(line).unwrap();
-        println!("{:#?}", ast);
+        let parser_result = parser.produce_ast(line.as_str());
+
+        let Ok(ast) = parser_result else {
+            println!("parser_result:#?");
+            return Ok(());
+        };
+        println!("{ast:#?}");
 
         let code = compile_program(ast);
-        println!("{:#?}", code)
+        println!("{code:#?}");
     }
 }

@@ -63,13 +63,15 @@ table_enum! {
 
 impl InstructionVariant {
     fn to_byte(&self) -> u8 {
-        self.instant() as u8 | self.id() << 1
+        u8::from(self.instant()) | self.id() << 1
     }
 
-    pub fn to_disc_jump(&self) -> InstructionVariant {
-        if self.disc_jump() || !self.jump() || matches!(self.id(), 0..=6) {
-            panic!("{self:?} is not a valid jump command");
-        }
+    pub fn to_disc_jump(&self) -> Self {
+        assert!(
+            !self.disc_jump() && self.jump() && !matches!(self.id(), 0..=6),
+            "{self:?} is not a valid jump command"
+        );
+
         match &self.id() {
             0 => Self::JMD,
             1 => Self::JDE,
@@ -104,7 +106,7 @@ use super::{compiler::RegisterContents, ComputerState};
 
 impl Instruction {
     pub fn to_bin(&self) -> u16 {
-        (self.variant.to_byte() as u16) << 8 | self.arg.unwrap_or(0) as u16
+        u16::from(self.variant.to_byte()) << 8 | u16::from(self.arg.unwrap_or(0))
     }
 
     pub fn to_string(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -117,14 +119,14 @@ impl Instruction {
     pub fn execute(&self, on: &mut ComputerState) {
         use InstructionVariant as IV;
         match self.variant {
-            IV::LA => on.reg_a = RegisterContents::Variable(self.arg.unwrap_or(17)),
-            IV::LB => on.reg_b = RegisterContents::Variable(self.arg.unwrap_or(17)),
-            IV::LAL | IV::LBL | IV::LAH | IV::LBH => on.reg_a = RegisterContents::Number(0),
+            IV::LA => on.a = RegisterContents::Variable(self.arg.unwrap_or(17)),
+            IV::LB => on.b = RegisterContents::Variable(self.arg.unwrap_or(17)),
+            IV::LAL | IV::LBL | IV::LAH | IV::LBH => on.a = RegisterContents::Number(0),
             IV::ADD | IV::SUB | IV::MUL | IV::AND | IV::OR | IV::XOR | IV::SUP | IV::SDN => {
-                on.reg_a = RegisterContents::Result(0)
+                on.a = RegisterContents::Result(0);
             }
-            IV::LCL => on.reg_c = self.arg.unwrap_or(0),
-            IV::SVA => on.reg_a = RegisterContents::Variable(self.arg.unwrap_or(21)),
+            IV::LCL => on.c = self.arg.unwrap_or(0),
+            IV::SVA => on.a = RegisterContents::Variable(self.arg.unwrap_or(21)),
             _ => {}
         }
     }

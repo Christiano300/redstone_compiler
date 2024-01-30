@@ -1,13 +1,13 @@
 use std::collections::VecDeque;
 
-use super::*;
+use super::{tokenize, EqualityOperator, Expression, Operator, Token};
 
 #[derive(Default)]
 pub struct Parser {
     tokens: VecDeque<Token>,
 }
 
-type Res = Result<Expression, String>;
+type Res<T = Expression> = Result<T, String>;
 
 macro_rules! match_fn {
     ($pattern:pat $(if $guard:expr)? $(,)?) => {
@@ -20,46 +20,50 @@ macro_rules! match_fn {
 
 impl Parser {
     pub fn new() -> Self {
-        Default::default()
+        Self::default()
     }
 
-    fn eat(&mut self) -> Token {
-        self.tokens.pop_front().unwrap()
+    fn eat(&mut self) -> Res<Token> {
+        self.tokens
+            .pop_front()
+            .ok_or_else(|| "Ran out of tokens".to_string())
     }
 
-    fn at(&self) -> &Token {
-        self.tokens.front().unwrap()
+    fn at(&self) -> Res<&Token> {
+        self.tokens
+            .front()
+            .ok_or_else(|| "Ran out of tokens".to_string())
     }
 
-    fn eat_if<F>(&mut self, validator: F, err: &str) -> Result<Token, String>
+    fn eat_if<F>(&mut self, validator: F, err: &str) -> Res<Token>
     where
         F: Fn(&Token) -> bool,
     {
-        let token = self.eat();
+        let token = self.eat()?;
         if !validator(&token) {
             return Err(err.to_string());
         }
         Ok(token)
     }
 
-    pub fn produce_ast(&mut self, source_code: String) -> Res {
+    pub fn produce_ast(&mut self, source_code: &str) -> Res {
         let tokens = tokenize(source_code)?;
         self.tokens = VecDeque::from(tokens);
 
         let mut body = vec![];
 
-        while !self.tokens.is_empty() && *self.at() != Token::Eof {
+        while !self.tokens.is_empty() && *self.at()? != Token::Eof {
             body.push(self.parse_statement()?);
         }
         Ok(Expression::Program(body))
     }
 
     fn parse_statement(&mut self) -> Res {
-        Ok(match self.at() {
+        Ok(match self.at()? {
             Token::Inline => self.parse_inline_declaration()?,
             Token::If => self.parse_conditional()?,
             Token::Pass => {
-                self.eat();
+                self.eat()?;
                 Expression::Pass
             }
             Token::Use => self.parse_use_statement()?,
@@ -68,21 +72,21 @@ impl Parser {
     }
 
     fn parse_conditional(&mut self) -> Res {
-        self.eat();
+        self.eat()?;
         let (condition, body) = self.parse_conditional_branch()?;
         // self.at is now elif, else or end
         let mut paths = vec![];
 
-        while matches!(self.at(), Token::Elif) {
-            self.eat();
+        while matches!(self.at()?, Token::Elif) {
+            self.eat()?;
             paths.push(self.parse_conditional_branch()?);
         }
 
-        let alternate = if matches!(self.at(), Token::Else) {
+        let alternate = if matches!(self.at()?, Token::Else) {
             Some({
-                self.eat();
+                self.eat()?;
                 let mut body = vec![];
-                while !matches!(self.at(), Token::End) {
+                while !matches!(self.at()?, Token::End) {
                     body.push(self.parse_statement()?);
                 }
                 if body.is_empty() {
@@ -106,7 +110,7 @@ impl Parser {
     fn parse_conditional_branch(&mut self) -> Result<(Expression, Vec<Expression>), String> {
         let condition = self.parse_expression()?;
         let mut body = vec![];
-        while !matches!(self.at(), Token::Elif | Token::Else | Token::End) {
+        while !matches!(self.at()?, Token::Elif | Token::Else | Token::End) {
             body.push(self.parse_statement()?);
         }
         if body.is_empty() {
@@ -116,9 +120,9 @@ impl Parser {
     }
 
     fn parse_use_statement(&mut self) -> Res {
-        self.eat();
         use Token as T;
-        match self.eat() {
+        self.eat()?;
+        match self.eat()? {
             T::Identifier(symbol) => Ok(Expression::Use(symbol)),
             T::Number(value) => {
                 if value == 17 {
@@ -131,7 +135,7 @@ impl Parser {
     }
 
     fn parse_inline_declaration(&mut self) -> Res {
-        self.eat();
+        self.eat()?;
         let Token::Identifier(identifier) = self.eat_if(
             match_fn!(Token::Identifier { .. }),
             "'inline' can only be followed by an identifier",
@@ -158,14 +162,14 @@ impl Parser {
     fn parse_assignment(&mut self) -> Res {
         let left = self.parse_i_assignment()?;
 
-        if matches!(self.at(), Token::Equals) {
+        if matches!(self.at()?, Token::Equals) {
             if !matches!(left, Expression::Identifier(..)) {
                 return Err("can only assign to identifiers".to_string());
             }
             let Expression::Identifier(name) = left else {
                 unreachable!()
             };
-            self.eat();
+            self.eat()?;
             let value = self.parse_assignment()?;
             return Ok(Expression::Assignment {
                 symbol: name,
@@ -179,15 +183,14 @@ impl Parser {
     fn parse_i_assignment(&mut self) -> Res {
         let left = self.parse_additive()?;
 
-        if matches!(self.at(), Token::IOperator(_)) {
+        if matches!(self.at()?, Token::IOperator(_)) {
             if !matches!(left, Expression::Identifier(..)) {
                 return Err("can only assign to identifiers".to_string());
             }
-            let name = match left {
-                Expression::Identifier(name) => name,
-                _ => return Err("can only assign to identifiers".to_string()),
+            let Expression::Identifier(name) = left else {
+                return Err("can only assign to identifiers".to_string());
             };
-            let Token::IOperator(operator) = self.eat() else {
+            let Token::IOperator(operator) = self.eat()? else {
                 unreachable!()
             };
             let value = self.parse_i_assignment()?;
@@ -210,7 +213,7 @@ impl Parser {
         let mut operator = Operator::Plus; // default, gets overwritten
 
         while {
-            match self.at() {
+            match self.at()? {
                 Token::BinaryOperator(op) => {
                     operator = *op;
                     *op == Operator::Plus || *op == Operator::Minus
@@ -218,7 +221,7 @@ impl Parser {
                 _ => false,
             }
         } {
-            self.eat();
+            self.eat()?;
             let right = self.parse_multiplicative()?;
             left = Expression::BinaryExpr {
                 left: Box::from(left),
@@ -236,7 +239,7 @@ impl Parser {
         let mut operator = Operator::Plus; // default, gets overwritten
 
         while {
-            match self.at() {
+            match self.at()? {
                 Token::BinaryOperator(op) => {
                     operator = *op;
                     *op == Operator::Mult
@@ -244,7 +247,7 @@ impl Parser {
                 _ => false,
             }
         } {
-            self.eat();
+            self.eat()?;
             let right = self.parse_eq_expression()?;
             left = Expression::BinaryExpr {
                 left: Box::from(left),
@@ -262,7 +265,7 @@ impl Parser {
         let mut operator = EqualityOperator::EqualTo; // default, gets overwritten
 
         while {
-            match self.at() {
+            match self.at()? {
                 Token::EqOperator(op) => {
                     operator = *op;
                     true
@@ -270,7 +273,7 @@ impl Parser {
                 _ => false,
             }
         } {
-            self.eat();
+            self.eat()?;
             let right = self.parse_call_member()?;
             left = Expression::EqExpr {
                 left: Box::from(left),
@@ -284,7 +287,7 @@ impl Parser {
     fn parse_call_member(&mut self) -> Res {
         let member = self.parse_member()?;
 
-        if matches!(self.at(), Token::OpenParen) {
+        if matches!(self.at()?, Token::OpenParen) {
             return self.parse_call(member);
         }
         Ok(member)
@@ -293,7 +296,7 @@ impl Parser {
     fn parse_call(&mut self, caller: Expression) -> Res {
         let args = self.parse_args()?;
 
-        if matches!(self.at(), Token::OpenParen) {
+        if matches!(self.at()?, Token::OpenParen) {
             return Err("no function chaining".to_string());
         }
 
@@ -306,7 +309,7 @@ impl Parser {
     fn parse_args(&mut self) -> Result<Vec<Expression>, String> {
         self.eat_if(match_fn!(Token::OpenParen), "Expected '('")?;
 
-        let args = if matches!(self.at(), Token::CloseParen) {
+        let args = if matches!(self.at()?, Token::CloseParen) {
             vec![]
         } else {
             self.parse_arguments_list()?
@@ -320,8 +323,8 @@ impl Parser {
     fn parse_arguments_list(&mut self) -> Result<Vec<Expression>, String> {
         let mut args = vec![self.parse_expression()?];
 
-        while matches!(self.at(), Token::Comma) {
-            self.eat();
+        while matches!(self.at()?, Token::Comma) {
+            self.eat()?;
             args.push(self.parse_expression()?);
         }
         Ok(args)
@@ -330,8 +333,8 @@ impl Parser {
     fn parse_member(&mut self) -> Res {
         let mut object = self.parse_primary()?;
 
-        while matches!(self.at(), Token::Dot) {
-            self.eat();
+        while matches!(self.at()?, Token::Dot) {
+            self.eat()?;
             let property = self.parse_primary()?;
 
             if !matches!(property, Expression::Identifier(..)) {
@@ -351,7 +354,7 @@ impl Parser {
     }
 
     fn parse_primary(&mut self) -> Res {
-        let token = self.eat();
+        let token = self.eat()?;
 
         Ok(match token {
             Token::Identifier(name) => Expression::Identifier(name),
@@ -368,7 +371,7 @@ impl Parser {
             _ => {
                 return Err(format!(
                     "Unexpected token found while parsing! {:?}",
-                    self.at()
+                    self.at()?
                 ))
             }
         })

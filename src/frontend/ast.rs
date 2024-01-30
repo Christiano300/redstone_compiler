@@ -59,29 +59,27 @@ pub enum EqualityOperator {
     LessEq,
 }
 
-use std::collections::HashMap;
-
-use once_cell::sync::Lazy;
-
-pub static OPERATORS: Lazy<HashMap<char, Operator>> = Lazy::new(|| {
+pub const fn operator(symbol: char) -> Option<Operator> {
     use Operator as O;
-    let mut map = HashMap::new();
-    map.insert('+', O::Plus);
-    map.insert('-', O::Minus);
-    map.insert('*', O::Mult);
-    map.insert('&', O::And);
-    map.insert('|', O::Or);
-    map.insert('^', O::Xor);
-    map
-});
+    match symbol {
+        '+' => Some(O::Plus),
+        '-' => Some(O::Minus),
+        '*' => Some(O::Mult),
+        '&' => Some(O::And),
+        '|' => Some(O::Or),
+        '^' => Some(O::Xor),
+        _ => None,
+    }
+}
 
-pub static EQ_OPERATORS: Lazy<HashMap<(char, bool), EqualityOperator>> = Lazy::new(|| {
+pub const fn eq_operator(symbol: char, eq_after: bool) -> Option<EqualityOperator> {
     use EqualityOperator as EO;
-    let mut map = HashMap::new();
-    map.insert(('>', true), EO::GreaterEq);
-    map.insert(('>', false), EO::Greater);
-    map.insert(('<', true), EO::LessEq);
-    map.insert(('<', false), EO::Less);
-    map.insert(('!', true), EO::NotEqual);
-    map
-});
+    match (symbol, eq_after) {
+        ('>', true) => Some(EO::GreaterEq),
+        ('>', false) => Some(EO::Greater),
+        ('<', true) => Some(EO::LessEq),
+        ('<', false) => Some(EO::Less),
+        ('!', true) => Some(EO::NotEqual),
+        _ => None,
+    }
+}

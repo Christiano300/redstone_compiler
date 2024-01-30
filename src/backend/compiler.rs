@@ -1,11 +1,13 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::frontend::{Expression, Operator, Parser};
+use vec1::{vec1, Vec1};
+
+use crate::frontend::{Expression, Operator};
 
 use super::{module::MODULES, Instruction};
 
 #[derive(Debug)]
-pub enum CompilerError {
+pub enum Error {
     NonexistentVar(String),
     TooManyVars,
     ForbiddenInline,
@@ -15,7 +17,7 @@ pub enum CompilerError {
     SomethingElseWentWrong(String),
 }
 
-type Res<T = ()> = Result<T, CompilerError>;
+type Res<T = ()> = Result<T, Error>;
 
 #[macro_export]
 macro_rules! instr {
@@ -25,27 +27,21 @@ macro_rules! instr {
             arg: Some($arg),
         })
     };
-    ($self:ident, $variant:ident) => {{
+    ($self:ident, $variant:ident) => {
         $self.push_instr($crate::backend::Instruction {
             variant: &$crate::backend::InstructionVariant::$variant,
             arg: None,
         })
-    }};
+    };
 }
 
 pub fn compile_program(ast: Expression) -> Res<Vec<Instruction>> {
-    match ast {
-        Expression::Program(body) => {
-            let compiler = Compiler::new();
-            compiler.generate_assembly(body)
-        }
-        _ => panic!(),
+    if let Expression::Program(body) = ast {
+        let compiler = Compiler::new();
+        compiler.generate_assembly(body)
+    } else {
+        panic!()
     }
-}
-
-pub fn compile_src(source_code: String) -> Res<Vec<Instruction>> {
-    let mut parser = Parser::new();
-    compile_program(parser.produce_ast(source_code).unwrap())
 }
 
 #[derive(Default, Copy, Clone, Debug)]
@@ -61,9 +57,9 @@ pub enum RegisterContents {
 
 #[derive(Default, Copy, Clone, Debug)]
 pub struct ComputerState {
-    pub reg_a: RegisterContents,
-    pub reg_b: RegisterContents,
-    pub reg_c: u8,
+    pub a: RegisterContents,
+    pub b: RegisterContents,
+    pub c: u8,
 }
 
 pub enum Instr {
@@ -84,20 +80,20 @@ pub struct ModuleCall<'a> {
 }
 
 pub struct Compiler {
-    scopes: Vec<Scope>,
+    scopes: Vec1<Scope>,
     main_scope: Vec<Instr>,
     modules: HashSet<String>,
 }
 
 impl Compiler {
-    fn new() -> Compiler {
-        Compiler {
-            scopes: vec![Scope {
-                start_state: Default::default(),
+    fn new() -> Self {
+        Self {
+            scopes: vec1!(Scope {
+                start_state: ComputerState::default(),
                 variables: HashMap::new(),
                 inline_variables: HashMap::new(),
                 instructions: vec![],
-            }],
+            }),
             modules: HashSet::new(),
             main_scope: vec![],
         }
@@ -115,17 +111,16 @@ impl Compiler {
                 return Ok(*v);
             }
         }
-        Err(CompilerError::NonexistentVar(symbol.clone()))
+        Err(Error::NonexistentVar(symbol.clone()))
     }
 
     fn insert_var(&mut self, symbol: &str) -> Res<u8> {
-        let last_scope = self.scopes.last_mut().unwrap();
+        let last_scope = self.last_scope();
         if let Some(slot) = last_scope.variables.get(symbol) {
             return Ok(*slot);
         }
-        let slot = match last_scope.variables.len().try_into() {
-            Ok(v) => v,
-            Err(_) => return Err(CompilerError::TooManyVars),
+        let Ok(slot) = last_scope.variables.len().try_into() else {
+            return Err(Error::TooManyVars);
         };
         last_scope.variables.insert(symbol.to_owned(), slot);
         Ok(slot)
@@ -138,46 +133,47 @@ impl Compiler {
                 return Ok(*v);
             }
         }
-        Err(CompilerError::NonexistentVar(symbol.clone()))
+        Err(Error::NonexistentVar(symbol.clone()))
     }
 
     fn insert_temp_var(&mut self) -> Res<u8> {
-        let last_scope = self.scopes.last_mut().unwrap();
-        let slot = match last_scope.variables.len().try_into() {
-            Ok(v) => v,
-            Err(_) => return Err(CompilerError::TooManyVars),
+        let last_scope = self.last_scope();
+        let Ok(slot) = last_scope.variables.len().try_into() else {
+            return Err(Error::TooManyVars);
         };
-        last_scope.variables.insert(format!(" {}", slot), slot);
+        last_scope.variables.insert(format!(" {slot}"), slot);
         Ok(slot)
     }
 
     fn cleanup_temp_var(&mut self, index: u8) {
-        let last_scope = self.scopes.last_mut().unwrap();
-        last_scope.variables.remove(&format!(" {}", index));
+        let last_scope = self.last_scope();
+        last_scope.variables.remove(&format!(" {index}"));
     }
 
     /// use the "instr" macro
     pub fn push_instr(&mut self, instr: Instruction) {
-        let last_scope = self.scopes.last_mut().unwrap();
+        let last_scope = self.last_scope();
         instr.execute(&mut last_scope.start_state);
         last_scope.instructions.push(Instr::Code(instr));
     }
 
-    fn get_instructions(self) -> Vec<Instruction> {
+    fn get_instructions(mut self) -> Vec<Instruction> {
+        self.main_scope
+            .push(Instr::Scope(self.scopes.split_off_first().0.instructions));
         let mut instructions = vec![];
-        Compiler::resolve_scope(self.main_scope, &mut instructions);
+        Self::resolve_scope(self.main_scope, &mut instructions);
         instructions
     }
 
     fn resolve_scope(scope: Vec<Instr>, into: &mut Vec<Instruction>) {
         scope.into_iter().for_each(|i| match i {
             Instr::Code(instr) => into.push(instr),
-            Instr::Scope(s) => Compiler::resolve_scope(s, into),
-        })
+            Instr::Scope(s) => Self::resolve_scope(s, into),
+        });
     }
 
     fn last_scope(&mut self) -> &mut Scope {
-        self.scopes.last_mut().unwrap()
+        self.scopes.last_mut()
     }
 
     fn generate_assembly(mut self, body: Vec<Expression>) -> Res<Vec<Instruction>> {
@@ -190,9 +186,8 @@ impl Compiler {
                 }
                 Expression::Use(module) => {
                     if !MODULES.with(|modules| modules.borrow().contains_key(&module)) {
-                        return Err(CompilerError::UnknownModule(format!(
-                            "{}, that module doesn't exist",
-                            module
+                        return Err(Error::UnknownModule(format!(
+                            "{module}, that module doesn't exist"
                         )));
                     }
                     self.modules.insert(module);
@@ -200,11 +195,8 @@ impl Compiler {
                 }
                 expr => self.eval_expr(&expr),
             }?;
-            Ok::<(), CompilerError>(())
+            Ok::<(), Error>(())
         })?;
-
-        self.main_scope
-            .push(Instr::Scope(self.scopes.pop().unwrap().instructions));
 
         Ok(self.get_instructions())
     }
@@ -229,7 +221,7 @@ impl Compiler {
                 })
             }
             Expression::NumericLiteral(value) => Ok(*value),
-            _ => Err(CompilerError::ForbiddenInline),
+            _ => Err(Error::ForbiddenInline),
         }
     }
 
@@ -241,7 +233,7 @@ impl Compiler {
                 left,
                 right,
                 operator,
-            } => self.eval_binary_expr(left, right, operator)?,
+            } => self.eval_binary_expr(left, right, *operator)?,
             Expression::Assignment { symbol, value } => self.eval_assignment(symbol, value)?,
             Expression::Call { args, function } => self.eval_call(function, args)?,
             _ => todo!("unsupported expression: {:?}", expr),
@@ -253,7 +245,7 @@ impl Compiler {
         &mut self,
         left: &Expression,
         right: &Expression,
-        operator: &Operator,
+        operator: Operator,
     ) -> Res {
         use Expression as E;
         match (left, right) {
@@ -305,7 +297,7 @@ impl Compiler {
         &mut self,
         left: &Expression,
         right: &Expression,
-        operator: &Operator,
+        operator: Operator,
     ) -> Res {
         self.put_into_a(left)?;
 
@@ -316,7 +308,7 @@ impl Compiler {
         Ok(())
     }
 
-    fn put_op(&mut self, operator: &Operator) {
+    fn put_op(&mut self, operator: Operator) {
         use Operator as O;
         match operator {
             O::Plus => instr!(self, ADD),
@@ -329,15 +321,17 @@ impl Compiler {
     }
 
     /// tries to get the value known at compile time
-    pub fn try_get_constant(&self, value: &Expression) -> Option<i16> {
-        match value {
+    pub fn try_get_constant(&mut self, value: &Expression) -> Res<Option<i16>> {
+        Ok(match value {
             Expression::NumericLiteral(value) => Some(*value),
-            Expression::Identifier(symbol) => match self.get_inline_var(symbol) {
+            Expression::Identifier(symbol) => self.get_inline_var(symbol).ok(),
+            Expression::BinaryExpr { .. } => match self.eval_after_inline(value) {
                 Ok(value) => Some(value),
-                Err(_) => None,
+                Err(Error::ForbiddenInline) => None,
+                Err(other) => return Err(other),
             },
             _ => None,
-        }
+        })
     }
 
     /// puts a into b
@@ -348,27 +342,28 @@ impl Compiler {
         Ok(())
     }
 
-    /// expr should be either NumericLiteral or Identifier
+    /// expr should be either `NumericLiteral` or `Identifier`
     pub fn put_into_a(&mut self, expr: &Expression) -> Res {
         use Expression as E;
         match expr {
             E::NumericLiteral(value) => {
                 self.put_a_number(*value);
             }
-            E::Identifier(symbol) => match self.get_inline_var(symbol) {
-                Ok(value) => self.put_a_number(value),
-                Err(_) => {
+            E::Identifier(symbol) => {
+                if let Ok(value) = self.get_inline_var(symbol) {
+                    self.put_a_number(value);
+                } else {
                     let var = self.get_var(symbol)?;
-                    if let RegisterContents::Variable(v) = self.last_scope().start_state.reg_a {
+                    if let RegisterContents::Variable(v) = self.last_scope().start_state.a {
                         if v == var {
                             return Ok(());
                         }
                     }
-                    instr!(self, LA, var)
+                    instr!(self, LA, var);
                 }
-            },
+            }
             _ => {
-                return Err(CompilerError::SomethingElseWentWrong(
+                return Err(Error::SomethingElseWentWrong(
                     "put_a called on wrong expression".to_string(),
                 ))
             }
@@ -376,27 +371,28 @@ impl Compiler {
         Ok(())
     }
 
-    /// expr should be either NumericLiteral or Identifier
+    /// expr should be either `NumericLiteral` or `Identifier`
     pub fn put_into_b(&mut self, expr: &Expression) -> Res {
         use Expression as E;
         match expr {
             E::NumericLiteral(value) => {
                 self.put_b_number(*value);
             }
-            E::Identifier(symbol) => match self.get_inline_var(symbol) {
-                Ok(value) => self.put_b_number(value),
-                Err(_) => {
+            E::Identifier(symbol) => {
+                if let Ok(value) = self.get_inline_var(symbol) {
+                    self.put_b_number(value);
+                } else {
                     let var = self.get_var(symbol)?;
-                    if let RegisterContents::Variable(v) = self.last_scope().start_state.reg_b {
+                    if let RegisterContents::Variable(v) = self.last_scope().start_state.b {
                         if v == var {
                             return Ok(());
                         }
                     }
-                    instr!(self, LB, var)
+                    instr!(self, LB, var);
                 }
-            },
+            }
             _ => {
-                return Err(CompilerError::SomethingElseWentWrong(
+                return Err(Error::SomethingElseWentWrong(
                     "put_a called on wrong expression".to_string(),
                 ))
             }
@@ -431,19 +427,19 @@ impl Compiler {
                     method = property;
                 }
                 _ => {
-                    return Err(CompilerError::UnknownModule(format!(
+                    return Err(Error::UnknownModule(format!(
                         "{object:?}, you cant use that as a module"
                     )))
                 }
             },
             _ => {
-                return Err(CompilerError::UnknownMethod(format!(
+                return Err(Error::UnknownMethod(format!(
                     "{function:?}, you cant use that as a function"
                 )))
             }
         }
         if !self.modules.contains(module) {
-            return Err(CompilerError::UnknownModule(format!(
+            return Err(Error::UnknownModule(format!(
                 "{}, not loaded in",
                 module.clone()
             )));
@@ -451,9 +447,15 @@ impl Compiler {
 
         // don't ask
         MODULES.with(|modules| {
-            (modules.borrow_mut().get_mut(module).unwrap().handler)(
+            (modules
+                .borrow_mut()
+                .get_mut(module)
+                .ok_or_else(|| {
+                    Error::UnknownModule(format!("{} not a valid module", module.clone()))
+                })?
+                .handler)(
                 self,
-                ModuleCall {
+                &ModuleCall {
                     method_name: method,
                     args,
                 },

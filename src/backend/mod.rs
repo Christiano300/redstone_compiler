@@ -3,7 +3,7 @@ pub mod instruction;
 mod module;
 
 #[allow(unused)]
-pub use compiler::{compile_program, compile_src};
+pub use compiler::compile_program;
 pub use instruction::*;
 
-use compiler::*;
+use compiler::{Compiler, ComputerState, Error, ModuleCall};

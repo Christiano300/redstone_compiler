@@ -1,22 +1,6 @@
-use once_cell::sync::Lazy;
+use super::{eq_operator, operator, EqualityOperator as EqOp, Operator};
 
-use super::{EqualityOperator as EqOp, Operator, EQ_OPERATORS, OPERATORS};
-use std::collections::HashMap;
-
-static KEYWORDS: Lazy<HashMap<String, Token>> = Lazy::new(|| {
-    let mut map = HashMap::new();
-    map.insert("inline".to_string(), Token::Inline);
-    map.insert("if".to_string(), Token::If);
-    map.insert("elif".to_string(), Token::Elif);
-    map.insert("elseif".to_string(), Token::Elif);
-    map.insert("else".to_string(), Token::Else);
-    map.insert("end".to_string(), Token::End);
-    map.insert("pass".to_string(), Token::Pass);
-    map.insert("use".to_string(), Token::Use);
-    map
-});
-
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Token {
     Number(i16),
     Identifier(String),
@@ -38,13 +22,26 @@ pub enum Token {
     Eof,
 }
 
-fn is_skippable(src: char) -> bool {
+fn keyword(string: String) -> Token {
+    match string.as_str() {
+        "inline" => Token::Inline,
+        "if" => Token::If,
+        "elif" | "elseif" => Token::Elif,
+        "else" => Token::Else,
+        "end" => Token::End,
+        "pass" => Token::Pass,
+        "use" => Token::Use,
+        _ => Token::Identifier(string),
+    }
+}
+
+const fn is_skippable(src: char) -> bool {
     matches!(src, ' ' | '\n' | '\t' | '\r' | ';')
 }
 
 use Token as T;
 
-pub fn tokenize(source_code: String) -> Result<Vec<Token>, String> {
+pub fn tokenize(source_code: &str) -> Result<Vec<Token>, String> {
     let mut tokens = vec![];
 
     let mut src = source_code.chars().peekable();
@@ -54,7 +51,7 @@ pub fn tokenize(source_code: String) -> Result<Vec<Token>, String> {
         if char.is_none() {
             break;
         }
-        let char = char.unwrap();
+        let Some(char) = char else { unreachable!() };
 
         match char {
             '(' => tokens.push(T::OpenParen),
@@ -62,12 +59,13 @@ pub fn tokenize(source_code: String) -> Result<Vec<Token>, String> {
             '+' | '-' | '*' | '&' | '|' | '^' => {
                 let equals_after = matches!(src.peek(), Some('='));
 
-                let operator = *OPERATORS.get(&char).unwrap();
-                tokens.push(if equals_after {
-                    T::IOperator(operator)
-                } else {
-                    T::BinaryOperator(operator)
-                });
+                if let Some(operator) = operator(char) {
+                    tokens.push(if equals_after {
+                        T::IOperator(operator)
+                    } else {
+                        T::BinaryOperator(operator)
+                    });
+                }
 
                 if equals_after {
                     src.next();
@@ -86,8 +84,8 @@ pub fn tokenize(source_code: String) -> Result<Vec<Token>, String> {
             '>' | '<' | '!' => {
                 let equals_after = matches!(src.peek(), Some('='));
 
-                if let Some(token) = EQ_OPERATORS.get(&(char, equals_after)) {
-                    tokens.push(T::EqOperator(*token));
+                if let Some(token) = eq_operator(char, equals_after) {
+                    tokens.push(T::EqOperator(token));
                     src.next();
                 }
             }
@@ -97,8 +95,14 @@ pub fn tokenize(source_code: String) -> Result<Vec<Token>, String> {
                     num.push(char);
                     let mut c = src.peek();
 
-                    while c.is_some() && c.unwrap().is_ascii_digit() {
-                        num.push(*c.unwrap());
+                    loop {
+                        let Some(n) = c else {
+                            break;
+                        };
+                        if !n.is_ascii_digit() {
+                            break;
+                        }
+                        num.push(*n);
                         src.next();
                         c = src.peek();
                     }
@@ -108,19 +112,21 @@ pub fn tokenize(source_code: String) -> Result<Vec<Token>, String> {
                     identifier.push(char);
                     let mut c = src.peek();
 
-                    while c.is_some() && (c.unwrap().is_alphanumeric() || *c.unwrap() == '_') {
-                        identifier.push(*c.unwrap());
+                    loop {
+                        let Some(a) = c else {
+                            break;
+                        };
+                        if !a.is_alphanumeric() && *a != '_' {
+                            break;
+                        }
+                        identifier.push(*a);
                         src.next();
                         c = src.peek();
                     }
 
-                    tokens.push(if KEYWORDS.contains_key(&identifier) {
-                        KEYWORDS.get(&identifier).unwrap().clone()
-                    } else {
-                        T::Identifier(identifier)
-                    });
+                    tokens.push(keyword(identifier));
                 } else if !is_skippable(char) {
-                    return Err(format!("Unrecognized Character found: {:?}", char));
+                    return Err(format!("Unrecognized Character found: {char:?}"));
                 }
             }
         }

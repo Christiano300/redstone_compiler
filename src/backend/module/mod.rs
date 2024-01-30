@@ -7,23 +7,23 @@ use std::collections::HashMap;
 thread_local! {
     pub static MODULES: RefCell<HashMap<String, Module>> = RefCell::new({
         let mut map = HashMap::new();
-        register_module(&mut map, "io", io::io_module);
+        register(&mut map, "io", io::module);
         map
     })
 }
 
-use super::{Compiler, CompilerError, ModuleCall};
+use super::{Compiler, Error, ModuleCall};
 
-pub type Handler = dyn FnMut(&mut Compiler, ModuleCall) -> Res;
+pub type Handler = dyn FnMut(&mut Compiler, &ModuleCall) -> Res;
 
 pub struct Module {
     pub name: String,
     pub handler: Box<Handler>,
 }
 
-pub fn register_module<F>(modules: &mut HashMap<String, Module>, name: &'static str, handler: F)
+pub fn register<F>(modules: &mut HashMap<String, Module>, name: &'static str, handler: F)
 where
-    F: FnMut(&mut Compiler, ModuleCall) -> Res + 'static,
+    F: FnMut(&mut Compiler, &ModuleCall) -> Res + 'static,
 {
     modules.insert(
         name.to_string(),
@@ -34,4 +34,4 @@ where
     );
 }
 
-type Res<T = ()> = Result<T, CompilerError>;
+type Res<T = ()> = Result<T, Error>;
