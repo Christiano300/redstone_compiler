@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub enum Expression {
     Program(Vec<Expression>),
     InlineDeclaration {
@@ -12,6 +12,7 @@ pub enum Expression {
         paths: Vec<(Expression, Vec<Expression>)>,
         alternate: Option<Vec<Expression>>,
     },
+    #[default]
     Pass,
     BinaryExpr {
         left: Box<Expression>,

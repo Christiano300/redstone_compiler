@@ -9,6 +9,7 @@ use super::{module::MODULES, Instruction};
 #[derive(Debug)]
 pub enum Error {
     NonexistentVar(String),
+    NonexistentInlineVar(String),
     TooManyVars,
     ForbiddenInline,
     UnknownModule(String),
@@ -62,11 +63,13 @@ pub struct ComputerState {
     pub c: u8,
 }
 
+#[derive(Debug)]
 pub enum Instr {
     Code(Instruction),
     Scope(Vec<Instr>),
 }
 
+#[derive(Debug)]
 struct Scope {
     start_state: ComputerState,
     variables: HashMap<String, u8>,
@@ -79,6 +82,7 @@ pub struct ModuleCall<'a> {
     pub args: &'a Vec<Expression>,
 }
 
+#[derive(Debug)]
 pub struct Compiler {
     scopes: Vec1<Scope>,
     main_scope: Vec<Instr>,
@@ -111,7 +115,10 @@ impl Compiler {
                 return Ok(*v);
             }
         }
-        Err(Error::NonexistentVar(symbol.clone()))
+        Err(Error::NonexistentInlineVar(format!(
+            "Inline {:?}, {:#?}",
+            symbol, self.scopes
+        )))
     }
 
     fn insert_var(&mut self, symbol: &str) -> Res<u8> {
@@ -133,10 +140,13 @@ impl Compiler {
                 return Ok(*v);
             }
         }
-        Err(Error::NonexistentVar(symbol.clone()))
+        Err(Error::NonexistentVar(format!(
+            "{:?}, {:#?}",
+            symbol, self.scopes
+        )))
     }
 
-    fn insert_temp_var(&mut self) -> Res<u8> {
+    pub fn insert_temp_var(&mut self) -> Res<u8> {
         let last_scope = self.last_scope();
         let Ok(slot) = last_scope.variables.len().try_into() else {
             return Err(Error::TooManyVars);
@@ -145,7 +155,7 @@ impl Compiler {
         Ok(slot)
     }
 
-    fn cleanup_temp_var(&mut self, index: u8) {
+    pub fn cleanup_temp_var(&mut self, index: u8) {
         let last_scope = self.last_scope();
         last_scope.variables.remove(&format!(" {index}"));
     }
@@ -327,7 +337,7 @@ impl Compiler {
             Expression::Identifier(symbol) => self.get_inline_var(symbol).ok(),
             Expression::BinaryExpr { .. } => match self.eval_after_inline(value) {
                 Ok(value) => Some(value),
-                Err(Error::ForbiddenInline) => None,
+                Err(Error::ForbiddenInline | Error::NonexistentInlineVar(..)) => None,
                 Err(other) => return Err(other),
             },
             _ => None,
@@ -400,7 +410,7 @@ impl Compiler {
         Ok(())
     }
 
-    fn put_a_number(&mut self, value: i16) {
+    pub fn put_a_number(&mut self, value: i16) {
         let bytes = value.to_le_bytes();
         instr!(self, LAL, bytes[0]);
         if bytes[1] != 0 {
@@ -408,7 +418,7 @@ impl Compiler {
         }
     }
 
-    fn put_b_number(&mut self, value: i16) {
+    pub fn put_b_number(&mut self, value: i16) {
         let bytes = value.to_le_bytes();
         instr!(self, LBL, bytes[0]);
         if bytes[1] != 0 {
