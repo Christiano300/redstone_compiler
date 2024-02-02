@@ -268,14 +268,24 @@ impl Compiler {
     ) -> Res {
         match (Self::is_simple(left, true), Self::is_simple(right, false)) {
             (true, true) => {
-                self.eval_simple_expr(left, right, operator)?;
+                if Self::is_simple(right, true) && Self::is_simple(left, false) {
+                    self.eval_simple_expr(right, left, operator)?;
+                } else {
+                    self.eval_simple_expr(left, right, operator)?;
+                }
             }
             (true, false) => {
                 self.eval_expr(right)?;
-                if operator.is_commutative() {
+                if operator.is_commutative() && Self::is_simple(left, false) {
                     self.put_into_b(left)?;
                 } else {
-                    self.switch()?;
+                    // if we just saved a variable we use it to switch
+                    match right {
+                        Expression::Assignment { symbol, value: _ } => {
+                            instr!(self, LB, self.get_var(symbol)?);
+                        }
+                        _ => self.switch()?,
+                    }
                     self.put_into_a(left)?;
                 }
                 self.put_op(operator);
@@ -287,11 +297,16 @@ impl Compiler {
             }
             (false, false) => {
                 self.eval_expr(right)?;
-                let temp = self.insert_temp_var()?;
-                instr!(self, SVA, temp);
-                self.eval_expr(left)?;
-                instr!(self, LB, temp);
-                self.cleanup_temp_var(temp);
+                if let Expression::Assignment { symbol, value: _ } = right {
+                    self.eval_expr(left)?;
+                    instr!(self, LB, self.get_var(symbol)?);
+                } else {
+                    let temp = self.insert_temp_var()?;
+                    instr!(self, SVA, temp);
+                    self.eval_expr(left)?;
+                    instr!(self, LB, temp);
+                    self.cleanup_temp_var(temp);
+                }
                 self.put_op(operator);
             }
         }
@@ -353,6 +368,7 @@ impl Compiler {
     pub fn switch(&mut self) -> Res {
         let temp = self.insert_temp_var()?;
         instr!(self, SVA, temp);
+        instr!(self, LB, temp);
         self.cleanup_temp_var(temp);
         Ok(())
     }
