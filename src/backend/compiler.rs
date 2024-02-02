@@ -251,36 +251,41 @@ impl Compiler {
         Ok(())
     }
 
+    pub fn is_simple(expr: &Expression, is_a: bool) -> bool {
+        use Expression as E;
+        match expr {
+            E::NumericLiteral(..) | E::Identifier(..) => true,
+            E::Assignment { symbol: _, value } => is_a && Self::is_simple(value, is_a),
+            _ => false,
+        }
+    }
+
     fn eval_binary_expr(
         &mut self,
         left: &Expression,
         right: &Expression,
         operator: Operator,
     ) -> Res {
-        use Expression as E;
-        match (left, right) {
-            (
-                E::Identifier(..) | E::NumericLiteral(..),
-                E::Identifier(..) | E::NumericLiteral(..),
-            ) => {
+        match (Self::is_simple(left, true), Self::is_simple(right, false)) {
+            (true, true) => {
                 self.eval_simple_expr(left, right, operator)?;
             }
-            (E::Identifier(..) | E::NumericLiteral(..), _) => {
+            (true, false) => {
                 self.eval_expr(right)?;
-                if matches!(operator, Operator::Minus) {
+                if operator.is_commutative() {
+                    self.put_into_b(left)?;
+                } else {
                     self.switch()?;
                     self.put_into_a(left)?;
-                } else {
-                    self.put_into_b(left)?;
                 }
                 self.put_op(operator);
             }
-            (_, E::Identifier(..) | E::NumericLiteral(..)) => {
+            (false, true) => {
                 self.eval_expr(left)?;
                 self.put_into_b(right)?;
                 self.put_op(operator);
             }
-            _ => {
+            (false, false) => {
                 self.eval_expr(right)?;
                 let temp = self.insert_temp_var()?;
                 instr!(self, SVA, temp);
@@ -372,6 +377,15 @@ impl Compiler {
                     instr!(self, LA, var);
                 }
             }
+            E::Assignment { .. } => {
+                if Self::is_simple(expr, true) {
+                    self.eval_expr(expr)?;
+                } else {
+                    return Err(Error::SomethingElseWentWrong(
+                        "put_a called on wrong assignment, report to developer".to_string(),
+                    ));
+                }
+            }
             _ => {
                 return Err(Error::SomethingElseWentWrong(
                     "put_a called on wrong expression".to_string(),
@@ -403,7 +417,7 @@ impl Compiler {
             }
             _ => {
                 return Err(Error::SomethingElseWentWrong(
-                    "put_a called on wrong expression".to_string(),
+                    "put_b called on wrong expression".to_string(),
                 ))
             }
         }

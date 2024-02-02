@@ -50,6 +50,13 @@ pub enum Operator {
     Xor,
 }
 
+impl Operator {
+    #[inline(always)]
+    pub fn is_commutative(&self) -> bool {
+        !matches!(self, Self::Minus)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EqualityOperator {
     EqualTo,

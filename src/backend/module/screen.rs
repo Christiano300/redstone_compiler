@@ -77,14 +77,21 @@ fn write_screenpos(compiler: &mut Compiler, x: &Expression, y: &Expression) -> R
             instr!(compiler, OR);
         }
         (None, None) => {
+            let simple = Compiler::is_simple(y, false);
             compiler.eval_expr(y)?;
-            let temp = compiler.insert_temp_var()?;
-            instr!(compiler, SVA, temp);
-            compiler.eval_expr(x)?;
-            compiler.put_b_number(8);
-            instr!(compiler, SUP);
-            instr!(compiler, LB, temp);
-            compiler.cleanup_temp_var(temp);
+            if simple {
+                compiler.put_into_b(y)?;
+
+                compiler.eval_expr(x)?;
+                instr!(compiler, SUP, 8);
+            } else {
+                let temp = compiler.insert_temp_var()?;
+                instr!(compiler, SVA, temp);
+                compiler.eval_expr(x)?;
+                instr!(compiler, SUP, 8);
+                compiler.cleanup_temp_var(temp);
+                instr!(compiler, LB, temp);
+            }
             instr!(compiler, OR);
         }
     }

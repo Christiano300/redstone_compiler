@@ -17,6 +17,7 @@ fn main() -> io::Result<()> {
 
     if program.is_empty() {
         repl(&mut parser)?;
+        return Ok(());
     }
 
     let path = format!("programs/{program}/{program}.🖥️");
@@ -77,8 +78,8 @@ fn repl(parser: &mut Parser) -> io::Result<()> {
         let parser_result = parser.produce_ast(line.as_str());
 
         let Ok(ast) = parser_result else {
-            println!("parser_result:#?");
-            return Ok(());
+            println!("{parser_result:#?}");
+            continue;
         };
         println!("{ast:#?}");
 
