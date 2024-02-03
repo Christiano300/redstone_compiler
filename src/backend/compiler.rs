@@ -251,13 +251,18 @@ impl Compiler {
         Ok(())
     }
 
-    pub fn is_simple(expr: &Expression, is_a: bool) -> bool {
+    pub const fn can_put_into_a(expr: &Expression) -> bool {
         use Expression as E;
         match expr {
             E::NumericLiteral(..) | E::Identifier(..) => true,
-            E::Assignment { symbol: _, value } => is_a && Self::is_simple(value, is_a),
+            E::Assignment { symbol: _, value } => Self::can_put_into_a(value),
             _ => false,
         }
+    }
+
+    pub const fn can_put_into_b(expr: &Expression) -> bool {
+        use Expression as E;
+        matches!(expr, E::NumericLiteral(..) | E::Identifier(..))
     }
 
     fn eval_binary_expr(
@@ -266,9 +271,9 @@ impl Compiler {
         right: &Expression,
         operator: Operator,
     ) -> Res {
-        match (Self::is_simple(left, true), Self::is_simple(right, false)) {
+        match (Self::can_put_into_a(left), Self::can_put_into_b(right)) {
             (true, true) => {
-                if Self::is_simple(right, true) && Self::is_simple(left, false) {
+                if Self::can_put_into_a(right) && Self::can_put_into_b(left) {
                     self.eval_simple_expr(right, left, operator)?;
                 } else {
                     self.eval_simple_expr(left, right, operator)?;
@@ -276,7 +281,7 @@ impl Compiler {
             }
             (true, false) => {
                 self.eval_expr(right)?;
-                if operator.is_commutative() && Self::is_simple(left, false) {
+                if operator.is_commutative() && Self::can_put_into_b(left) {
                     self.put_into_b(left)?;
                 } else {
                     // if we just saved a variable we use it to switch
@@ -394,7 +399,7 @@ impl Compiler {
                 }
             }
             E::Assignment { .. } => {
-                if Self::is_simple(expr, true) {
+                if Self::can_put_into_a(expr) {
                     self.eval_expr(expr)?;
                 } else {
                     return Err(Error::SomethingElseWentWrong(

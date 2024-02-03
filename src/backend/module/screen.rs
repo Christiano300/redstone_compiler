@@ -77,7 +77,7 @@ fn write_screenpos(compiler: &mut Compiler, x: &Expression, y: &Expression) -> R
             instr!(compiler, OR);
         }
         (None, None) => {
-            let simple = Compiler::is_simple(y, false);
+            let simple = Compiler::can_put_into_b(y);
             compiler.eval_expr(y)?;
             if simple {
                 compiler.put_into_b(y)?;

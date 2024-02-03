@@ -74,7 +74,7 @@ impl InstructionVariant {
             "{self:?} is not a valid jump command"
         );
 
-        match &self.id() {
+        match self.id() {
             0 => Self::JMD,
             1 => Self::JDE,
             2 => Self::JDN,

@@ -1,5 +1,8 @@
 use crate::{
-    backend::{Compiler, Error, ModuleCall},
+    backend::{
+        module::{arg_parse, Arg},
+        Compiler, Error, ModuleCall,
+    },
     instr,
 };
 
@@ -38,27 +41,23 @@ fn read(compiler: &mut Compiler, call: &ModuleCall) -> Res {
     Ok(())
 }
 
-#[allow(clippy::unwrap_used)]
 fn write(compiler: &mut Compiler, call: &ModuleCall) -> Res {
-    if call.args.len() != 2 {
-        return Err(Error::InvalidArgs(format!("{:?}", call.args)));
-    }
-    // out slot has to be known at compile-time
-    let Some(slot) = compiler.try_get_constant(call.args.last().unwrap())? else {
-        return Err(Error::InvalidArgs(
-            "Output slot has to be known at compile time".to_string(),
-        ));
-    };
+    let args = arg_parse(
+        compiler,
+        [Arg::Number("value"), Arg::Constant("Outslot")],
+        call.args,
+    )?;
 
+    let slot = compiler.try_get_constant(args[1])?.unwrap_or(0);
     if !(0..8).contains(&slot) {
         return Err(Error::InvalidArgs(
             "Output slot has to be from 0 to 7".to_string(),
         ));
     }
 
-    let slot: u8 = slot.try_into().unwrap();
+    let slot: u8 = slot.try_into().unwrap_or(0);
 
-    compiler.eval_expr(call.args.first().unwrap())?;
+    compiler.eval_expr(&call.args[0])?;
 
     instr!(compiler, SVA, slot + 32);
 
