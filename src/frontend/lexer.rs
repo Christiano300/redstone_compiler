@@ -89,6 +89,7 @@ pub fn tokenize(source_code: &str) -> Result<Vec<Token>, String> {
                     src.next();
                 }
             }
+            '#' => while src.next() != Some('\n') {},
             _ => {
                 if char.is_ascii_digit() {
                     let mut num = String::new();

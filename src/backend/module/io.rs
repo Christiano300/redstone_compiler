@@ -16,25 +16,18 @@ pub fn module(compiler: &mut Compiler, call: &ModuleCall) -> Res {
     }
 }
 
-#[allow(clippy::unwrap_used)]
 fn read(compiler: &mut Compiler, call: &ModuleCall) -> Res {
-    if call.args.len() != 1 {
-        return Err(Error::InvalidArgs(format!("{:?}", call.args)));
-    }
+    let args = arg_parse(compiler, [Arg::Constant("Inslot")], call.args)?;
 
-    let Some(slot) = compiler.try_get_constant(call.args.first().unwrap())? else {
-        return Err(Error::InvalidArgs(
-            "Input slot has to be known at compile time".to_string(),
-        ));
-    };
-
+    #[allow(clippy::unwrap_used)]
+    let slot = compiler.try_get_constant(args[0])?.unwrap();
     if !(0..8).contains(&slot) {
         return Err(Error::InvalidArgs(
             "Input slot has to be from 0 to 7".to_string(),
         ));
     }
 
-    let slot: u8 = slot.try_into().unwrap();
+    let slot: u8 = slot.try_into().unwrap_or(0);
 
     instr!(compiler, LA, slot + 32);
 
@@ -48,7 +41,8 @@ fn write(compiler: &mut Compiler, call: &ModuleCall) -> Res {
         call.args,
     )?;
 
-    let slot = compiler.try_get_constant(args[1])?.unwrap_or(0);
+    #[allow(clippy::unwrap_used)]
+    let slot = compiler.try_get_constant(args[1])?.unwrap();
     if !(0..8).contains(&slot) {
         return Err(Error::InvalidArgs(
             "Output slot has to be from 0 to 7".to_string(),

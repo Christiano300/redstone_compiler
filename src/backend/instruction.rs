@@ -1,3 +1,4 @@
+use core::panic;
 use std::{
     fmt::{self, Debug},
     u8,
@@ -14,53 +15,54 @@ table_enum! {
     jump: bool,
     id: u8,
     instant: bool,
+    has_arg: bool,
 ) {
-    STOP("STP", false, false, 0, false),
+    STOP("STP", false, false, 0, false, false),
 
-    NON("NON", false, false, 0, true),
-    LA("LA", false, false, 1, true),
-    LB("LB", false, false, 2, true),
-    LC("LC", false, false, 3, true),
+    NON("NON", false, false, 0, true, false),
+    LA("LA", false, false, 1, true, true),
+    LB("LB", false, false, 2, true, true),
+    LC("LC", false, false, 3, true, true),
 
-    SVA("SVA", false, false, 4, false),
+    SVA("SVA", false, false, 4, false, true),
 
-    LAL("LAL", false, false, 5, true),
-    LAH("LAH", false, false, 6, true),
-    LBL("LBL", false, false, 7, true),
-    LBH("LBH", false, false, 8, true),
-    LCL("LCL", false, false, 9, true),
+    LAL("LAL", false, false, 5, true, true),
+    LAH("LAH", false, false, 6, true, true),
+    LBL("LBL", false, false, 7, true, true),
+    LBH("LBH", false, false, 8, true, true),
+    LCL("LCL", false, false, 9, true, true),
 
-    ADD("ADD", false, false, 10, true),
-    SUB("SUB", false, false, 11, true),
-    AND("AND", false, false, 12, true),
-    OR("OR", false, false, 13, true),
-    XOR("XOR", false, false, 14, true),
+    ADD("ADD", false, false, 10, true, false),
+    SUB("SUB", false, false, 11, true, false),
+    AND("AND", false, false, 12, true, false),
+    OR("OR", false, false, 13, true, false),
+    XOR("XOR", false, false, 14, true, false),
 
-    SUP("SUP", false, false, 15, false),
-    SDN("SDN", false, false, 16, false),
-    MUL("MUL", false, false, 17, false),
+    SUP("SUP", false, false, 15, false, true),
+    SDN("SDN", false, false, 16, false, true),
+    MUL("MUL", false, false, 17, false, false),
 
-    RW("RW", false, false, 18, true),
-    RR("RR", false, false, 19, true),
-    RC("RC", false, false, 20, false),
+    RW("RW", false, false, 18, true, false),
+    RR("RR", false, false, 19, true, false),
+    RC("RC", false, false, 20, false, false),
 
-    INB("INB", false, false, 21, false),
+    INB("INB", false, false, 21, false, false),
 
-    JMP("JMP", false, true, 0, true),
-    JE("JE", false, true, 1, true),
-    JNE("JNE", false, true, 2, true),
-    JG("JG", false, true, 3, true),
-    JGE("JGE", false, true, 4, true),
-    JL("JL", false, true, 5, true),
-    JLE("JLE", false, true, 6, true),
+    JMP("JMP", false, true, 0, true, true),
+    JE("JE", false, true, 1, true, true),
+    JNE("JNE", false, true, 2, true, true),
+    JG("JG", false, true, 3, true, true),
+    JGE("JGE", false, true, 4, true, true),
+    JL("JL", false, true, 5, true, true),
+    JLE("JLE", false, true, 6, true, true),
 
-    JMD("JMD", true, true, 0, true),
-    JDE("JDE", true, true, 1, true),
-    JDN("JDN", true, true, 2, true),
-    JDG("JDG", true, true, 3, true),
-    JDGE("JDGE", true, true, 4, true),
-    JDL("JDL", true, true, 5, true),
-    JDLE("JDLE", true, true, 6, true),
+    JMD("JMD", true, true, 0, true, true),
+    JDE("JDE", true, true, 1, true, true),
+    JDN("JDN", true, true, 2, true, true),
+    JDG("JDG", true, true, 3, true, true),
+    JDGE("JDGE", true, true, 4, true, true),
+    JDL("JDL", true, true, 5, true, true),
+    JDLE("JDLE", true, true, 6, true, true),
 }}
 
 impl InstructionVariant {
@@ -107,6 +109,11 @@ impl Debug for Instruction {
 use super::{compiler::RegisterContents, ComputerState};
 
 impl Instruction {
+    pub const fn new(variant: &'static InstructionVariant, arg: Option<u8>) -> Self {
+        assert!(variant.has_arg() == arg.is_some(),);
+        Self { variant, arg }
+    }
+
     pub fn to_bin(&self) -> u16 {
         u16::from(self.variant.to_byte()) << 8 | u16::from(self.arg.unwrap_or(0))
     }
@@ -120,15 +127,48 @@ impl Instruction {
 
     pub fn execute(&self, on: &mut ComputerState) {
         use InstructionVariant as IV;
+        use RegisterContents as RC;
         match self.variant {
-            IV::LA => on.a = RegisterContents::Variable(self.arg.unwrap_or(17)),
-            IV::LB => on.b = RegisterContents::Variable(self.arg.unwrap_or(17)),
-            IV::LAL | IV::LBL | IV::LAH | IV::LBH => on.a = RegisterContents::Number(0),
-            IV::ADD | IV::SUB | IV::MUL | IV::AND | IV::OR | IV::XOR | IV::SUP | IV::SDN => {
-                on.a = RegisterContents::Result(0);
+            IV::LA | IV::SVA => on.a = RC::Variable(self.arg.unwrap_or(0)),
+            IV::LB => on.b = RC::Variable(self.arg.unwrap_or(0)),
+            IV::LAL => on.a = RC::Number(self.arg.unwrap_or(0).into()),
+            IV::LAH => {
+                on.a = match on.a {
+                    RC::Number(value) => {
+                        RC::Number(value + (<u8 as Into<i16>>::into(self.arg.unwrap_or(0)) << 8))
+                    }
+                    _ => RC::Unknown,
+                }
             }
-            IV::LCL => on.c = self.arg.unwrap_or(0),
-            IV::SVA => on.a = RegisterContents::Variable(self.arg.unwrap_or(21)),
+            IV::LBL => on.b = RC::Number(self.arg.unwrap_or(0).into()),
+            IV::LBH => {
+                on.b = match on.b {
+                    RC::Number(value) => {
+                        RC::Number(value + (<u8 as Into<i16>>::into(self.arg.unwrap_or(0)) << 8))
+                    }
+                    _ => RC::Unknown,
+                }
+            }
+            IV::ADD | IV::SUB | IV::MUL | IV::AND | IV::OR | IV::XOR | IV::SUP | IV::SDN => {
+                on.a = match (on.a, on.b) {
+                    (RC::Number(a), RC::Number(b)) => RC::Number(match self.variant {
+                        IV::ADD => a + b,
+                        IV::SUB => a - b,
+                        IV::AND => a & b,
+                        IV::OR => a | b,
+                        IV::XOR => a ^ b,
+                        IV::SUP => a << b,
+                        IV::SDN => a >> b,
+                        IV::MUL => a * b,
+                        _ => unreachable!(),
+                    }),
+                    _ => RC::Unknown,
+                }
+            }
+            IV::LCL => on.c = RC::Number(self.arg.unwrap_or(0).into()),
+            IV::LC => on.c = RC::Variable(self.arg.unwrap_or(0)),
+            IV::RR => on.a = RC::Unknown,
+            IV::INB => on.b = RC::Unknown,
             _ => {}
         }
     }

@@ -71,8 +71,7 @@ fn write_screenpos(compiler: &mut Compiler, x: &Expression, y: &Expression) -> R
         }
         (None, Some(y)) => {
             compiler.eval_expr(x)?;
-            compiler.put_b_number(8);
-            instr!(compiler, SUP);
+            instr!(compiler, SUP, 8);
             compiler.put_b_number(y);
             instr!(compiler, OR);
         }

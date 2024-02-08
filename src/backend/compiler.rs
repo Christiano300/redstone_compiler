@@ -23,16 +23,16 @@ type Res<T = ()> = Result<T, Error>;
 #[macro_export]
 macro_rules! instr {
     ($self:ident, $variant:ident, $arg:expr) => {
-        $self.push_instr($crate::backend::Instruction {
-            variant: &$crate::backend::InstructionVariant::$variant,
-            arg: Some($arg),
-        })
+        $self.push_instr($crate::backend::Instruction::new(
+            &$crate::backend::InstructionVariant::$variant,
+            Some($arg),
+        ))
     };
     ($self:ident, $variant:ident) => {
-        $self.push_instr($crate::backend::Instruction {
-            variant: &$crate::backend::InstructionVariant::$variant,
-            arg: None,
-        })
+        $self.push_instr($crate::backend::Instruction::new(
+            &$crate::backend::InstructionVariant::$variant,
+            None,
+        ))
     };
 }
 
@@ -45,12 +45,11 @@ pub fn compile_program(ast: Expression) -> Res<Vec<Instruction>> {
     }
 }
 
-#[derive(Default, Copy, Clone, Debug)]
+#[derive(Default, Copy, Clone, Debug, PartialEq, Eq)]
 #[allow(unused)]
 pub enum RegisterContents {
     Variable(u8),
     Number(i16),
-    Result(i16),
     RamAddress(i32),
     #[default]
     Unknown,
@@ -60,7 +59,7 @@ pub enum RegisterContents {
 pub struct ComputerState {
     pub a: RegisterContents,
     pub b: RegisterContents,
-    pub c: u8,
+    pub c: RegisterContents,
 }
 
 #[derive(Debug)]
@@ -378,7 +377,7 @@ impl Compiler {
         Ok(())
     }
 
-    /// expr should be either `NumericLiteral` or `Identifier`
+    /// expr should be either `NumericLiteral`, `Identifier` or `Assignment`
     pub fn put_into_a(&mut self, expr: &Expression) -> Res {
         use Expression as E;
         match expr {
@@ -446,6 +445,9 @@ impl Compiler {
     }
 
     pub fn put_a_number(&mut self, value: i16) {
+        if self.last_scope().start_state.a == RegisterContents::Number(value) {
+            return;
+        }
         let bytes = value.to_le_bytes();
         instr!(self, LAL, bytes[0]);
         if bytes[1] != 0 {
@@ -454,6 +456,9 @@ impl Compiler {
     }
 
     pub fn put_b_number(&mut self, value: i16) {
+        if self.last_scope().start_state.b == RegisterContents::Number(value) {
+            return;
+        }
         let bytes = value.to_le_bytes();
         instr!(self, LBL, bytes[0]);
         if bytes[1] != 0 {

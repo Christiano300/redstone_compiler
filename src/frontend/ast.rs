@@ -51,6 +51,7 @@ pub enum Operator {
 }
 
 impl Operator {
+    #[inline]
     pub const fn is_commutative(self) -> bool {
         !matches!(self, Self::Minus)
     }
