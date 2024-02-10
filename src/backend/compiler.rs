@@ -68,9 +68,9 @@ pub enum Instr {
     Scope(Vec<Instr>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct Scope {
-    start_state: ComputerState,
+    state: ComputerState,
     variables: HashMap<String, u8>,
     inline_variables: HashMap<String, i16>,
     instructions: Vec<Instr>,
@@ -86,19 +86,16 @@ pub struct Compiler {
     scopes: Vec1<Scope>,
     main_scope: Vec<Instr>,
     modules: HashSet<String>,
+    variables: [bool; 32],
 }
 
 impl Compiler {
     fn new() -> Self {
         Self {
-            scopes: vec1!(Scope {
-                start_state: ComputerState::default(),
-                variables: HashMap::new(),
-                inline_variables: HashMap::new(),
-                instructions: vec![],
-            }),
+            scopes: vec1!(Scope::default()),
             modules: HashSet::new(),
             main_scope: vec![],
+            variables: [false; 32],
         }
     }
 
@@ -120,15 +117,18 @@ impl Compiler {
         )))
     }
 
+    fn get_next_available_slot(&mut self) -> Option<u8> {
+        let index = self.variables.iter().position(|slot| !*slot)?;
+        self.variables[index] = true;
+        Some(index.try_into().unwrap_or(0))
+    }
+
     fn insert_var(&mut self, symbol: &str) -> Res<u8> {
-        let last_scope = self.last_scope();
-        if let Some(slot) = last_scope.variables.get(symbol) {
+        if let Some(slot) = self.last_scope().variables.get(symbol) {
             return Ok(*slot);
         }
-        let Ok(slot) = last_scope.variables.len().try_into() else {
-            return Err(Error::TooManyVars);
-        };
-        last_scope.variables.insert(symbol.to_owned(), slot);
+        let slot = self.get_next_available_slot().ok_or(Error::TooManyVars)?;
+        self.last_scope().variables.insert(symbol.to_owned(), slot);
         Ok(slot)
     }
 
@@ -146,23 +146,17 @@ impl Compiler {
     }
 
     pub fn insert_temp_var(&mut self) -> Res<u8> {
-        let last_scope = self.last_scope();
-        let Ok(slot) = last_scope.variables.len().try_into() else {
-            return Err(Error::TooManyVars);
-        };
-        last_scope.variables.insert(format!(" {slot}"), slot);
-        Ok(slot)
+        self.get_next_available_slot().ok_or(Error::TooManyVars)
     }
 
     pub fn cleanup_temp_var(&mut self, index: u8) {
-        let last_scope = self.last_scope();
-        last_scope.variables.remove(&format!(" {index}"));
+        self.variables[index as usize] = false;
     }
 
     /// use the "instr" macro
     pub fn push_instr(&mut self, instr: Instruction) {
         let last_scope = self.last_scope();
-        instr.execute(&mut last_scope.start_state);
+        instr.execute(&mut last_scope.state);
         last_scope.instructions.push(Instr::Code(instr));
     }
 
@@ -272,7 +266,7 @@ impl Compiler {
     ) -> Res {
         match (Self::can_put_into_a(left), Self::can_put_into_b(right)) {
             (true, true) => {
-                if Self::can_put_into_a(right) && Self::can_put_into_b(left) {
+                if Self::can_put_into_b(left) {
                     self.eval_simple_expr(right, left, operator)?;
                 } else {
                     self.eval_simple_expr(left, right, operator)?;
@@ -389,7 +383,7 @@ impl Compiler {
                     self.put_a_number(value);
                 } else {
                     let var = self.get_var(symbol)?;
-                    if let RegisterContents::Variable(v) = self.last_scope().start_state.a {
+                    if let RegisterContents::Variable(v) = self.last_scope().state.a {
                         if v == var {
                             return Ok(());
                         }
@@ -427,7 +421,7 @@ impl Compiler {
                     self.put_b_number(value);
                 } else {
                     let var = self.get_var(symbol)?;
-                    if let RegisterContents::Variable(v) = self.last_scope().start_state.b {
+                    if let RegisterContents::Variable(v) = self.last_scope().state.b {
                         if v == var {
                             return Ok(());
                         }
@@ -445,7 +439,7 @@ impl Compiler {
     }
 
     pub fn put_a_number(&mut self, value: i16) {
-        if self.last_scope().start_state.a == RegisterContents::Number(value) {
+        if self.last_scope().state.a == RegisterContents::Number(value) {
             return;
         }
         let bytes = value.to_le_bytes();
@@ -456,7 +450,7 @@ impl Compiler {
     }
 
     pub fn put_b_number(&mut self, value: i16) {
-        if self.last_scope().start_state.b == RegisterContents::Number(value) {
+        if self.last_scope().state.b == RegisterContents::Number(value) {
             return;
         }
         let bytes = value.to_le_bytes();

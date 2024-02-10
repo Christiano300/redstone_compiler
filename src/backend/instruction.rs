@@ -135,7 +135,7 @@ impl Instruction {
             IV::LAH => {
                 on.a = match on.a {
                     RC::Number(value) => {
-                        RC::Number(value + (<u8 as Into<i16>>::into(self.arg.unwrap_or(0)) << 8))
+                        RC::Number(value + (i16::from(self.arg.unwrap_or(0)) << 8))
                     }
                     _ => RC::Unknown,
                 }
@@ -144,7 +144,7 @@ impl Instruction {
             IV::LBH => {
                 on.b = match on.b {
                     RC::Number(value) => {
-                        RC::Number(value + (<u8 as Into<i16>>::into(self.arg.unwrap_or(0)) << 8))
+                        RC::Number(value + (i16::from(self.arg.unwrap_or(0)) << 8))
                     }
                     _ => RC::Unknown,
                 }
