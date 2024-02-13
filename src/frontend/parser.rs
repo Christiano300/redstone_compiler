@@ -67,6 +67,7 @@ impl Parser {
                 Expression::Pass
             }
             Token::Use => self.parse_use_statement()?,
+            Token::Var => self.parse_var_declaration()?,
             _ => self.parse_expression()?,
         })
     }
@@ -107,7 +108,7 @@ impl Parser {
         })
     }
 
-    fn parse_conditional_branch(&mut self) -> Result<(Expression, Vec<Expression>), String> {
+    fn parse_conditional_branch(&mut self) -> Res<(Expression, Vec<Expression>)> {
         let condition = self.parse_expression()?;
         let mut body = vec![];
         while !matches!(self.at()?, Token::Elif | Token::Else | Token::End) {
@@ -126,11 +127,20 @@ impl Parser {
             T::Identifier(symbol) => Ok(Expression::Use(symbol)),
             T::Number(value) => {
                 if value == 17 {
-                    return Ok(Expression::Use("fun".to_string()));
+                    return Ok(Expression::Use(" ".to_string()));
                 }
                 Err("Invalid module".to_string())
             }
             _ => Err("Invalid module".to_string()),
+        }
+    }
+
+    fn parse_var_declaration(&mut self) -> Res {
+        use Token as T;
+        self.eat()?;
+        match self.eat()? {
+            T::Identifier(symbol) => Ok(Expression::VarDeclaration { symbol }),
+            _ => Err("Invalid variable declaration".to_string()),
         }
     }
 

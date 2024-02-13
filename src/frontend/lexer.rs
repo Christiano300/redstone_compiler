@@ -19,6 +19,7 @@ pub enum Token {
     End,
     Pass,
     Use,
+    Var,
     Eof,
 }
 
@@ -31,6 +32,7 @@ fn keyword(string: String) -> Token {
         "end" => Token::End,
         "pass" => Token::Pass,
         "use" => Token::Use,
+        "var" => Token::Var,
         _ => Token::Identifier(string),
     }
 }

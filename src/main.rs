@@ -12,12 +12,10 @@ mod backend;
 mod frontend;
 
 fn main() -> io::Result<()> {
-    let mut parser = Parser::new();
     let program = input("Enter program or leave empty for repl: ")?;
 
     if program.is_empty() {
-        repl(&mut parser)?;
-        return Ok(());
+        return repl();
     }
 
     let path = format!("programs/{program}/{program}.🖥️");
@@ -29,10 +27,11 @@ fn main() -> io::Result<()> {
         return fs::write(path, "");
     };
 
-    let mut contents = String::new();
-    file.read_to_string(&mut contents)?;
+    let mut code = String::new();
+    file.read_to_string(&mut code)?;
 
-    let ast = match parser.produce_ast(contents.as_str()) {
+    let mut parser = Parser::new();
+    let ast = match parser.produce_ast(code.as_str()) {
         Ok(ast) => ast,
         Err(err) => {
             println!("{err:#?}");
@@ -67,7 +66,8 @@ fn input(prompt: &str) -> Result<String, io::Error> {
     Ok(contents.trim().to_owned())
 }
 
-fn repl(parser: &mut Parser) -> io::Result<()> {
+fn repl() -> io::Result<()> {
+    let mut parser = Parser::new();
     println!("Repl v -0.1");
     loop {
         let line = input("> ")?;

@@ -30,6 +30,9 @@ pub enum Expression {
         symbol: String,
         value: Box<Expression>,
     },
+    VarDeclaration {
+        symbol: String,
+    },
     Member {
         object: Box<Expression>,
         property: String,

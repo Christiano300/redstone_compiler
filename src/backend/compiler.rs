@@ -1,10 +1,15 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    any::Any,
+    collections::{HashMap, HashSet},
+};
 
 use vec1::{vec1, Vec1};
 
 use crate::frontend::{Expression, Operator};
 
 use super::{module::MODULES, Instruction};
+
+const VAR_SLOTS: usize = 32;
 
 #[derive(Debug)]
 pub enum Error {
@@ -55,11 +60,24 @@ pub enum RegisterContents {
     Unknown,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RamPage {
+    ThisOne(u8),
+    Unknown,
+}
+
+impl Default for RamPage {
+    fn default() -> Self {
+        Self::ThisOne(0)
+    }
+}
+
 #[derive(Default, Copy, Clone, Debug)]
 pub struct ComputerState {
     pub a: RegisterContents,
     pub b: RegisterContents,
     pub c: RegisterContents,
+    pub ram_page: RamPage,
 }
 
 #[derive(Debug)]
@@ -69,8 +87,8 @@ pub enum Instr {
 }
 
 #[derive(Debug, Default)]
-struct Scope {
-    state: ComputerState,
+pub struct Scope {
+    pub state: ComputerState,
     variables: HashMap<String, u8>,
     inline_variables: HashMap<String, i16>,
     instructions: Vec<Instr>,
@@ -86,7 +104,8 @@ pub struct Compiler {
     scopes: Vec1<Scope>,
     main_scope: Vec<Instr>,
     modules: HashSet<String>,
-    variables: [bool; 32],
+    variables: [bool; VAR_SLOTS],
+    pub module_state: HashMap<&'static str, Box<dyn Any>>,
 }
 
 impl Compiler {
@@ -95,7 +114,8 @@ impl Compiler {
             scopes: vec1!(Scope::default()),
             modules: HashSet::new(),
             main_scope: vec![],
-            variables: [false; 32],
+            variables: [false; VAR_SLOTS],
+            module_state: HashMap::new(),
         }
     }
 
@@ -132,7 +152,7 @@ impl Compiler {
         Ok(slot)
     }
 
-    fn get_var(&self, symbol: &String) -> Res<u8> {
+    pub fn get_var(&self, symbol: &String) -> Res<u8> {
         for scope in self.scopes.iter().rev() {
             let entry = scope.variables.get(symbol);
             if let Some(v) = entry {
@@ -175,7 +195,7 @@ impl Compiler {
         });
     }
 
-    fn last_scope(&mut self) -> &mut Scope {
+    pub fn last_scope(&mut self) -> &mut Scope {
         self.scopes.last_mut()
     }
 
@@ -194,6 +214,10 @@ impl Compiler {
                         )));
                     }
                     self.modules.insert(module);
+                    Ok(())
+                }
+                Expression::VarDeclaration { symbol } => {
+                    self.insert_var(symbol.as_str())?;
                     Ok(())
                 }
                 expr => self.eval_expr(&expr),
@@ -266,11 +290,7 @@ impl Compiler {
     ) -> Res {
         match (Self::can_put_into_a(left), Self::can_put_into_b(right)) {
             (true, true) => {
-                if Self::can_put_into_b(left) {
-                    self.eval_simple_expr(right, left, operator)?;
-                } else {
-                    self.eval_simple_expr(left, right, operator)?;
-                }
+                self.eval_simple_expr(left, right, operator)?;
             }
             (true, false) => {
                 self.eval_expr(right)?;
@@ -278,11 +298,10 @@ impl Compiler {
                     self.put_into_b(left)?;
                 } else {
                     // if we just saved a variable we use it to switch
-                    match right {
-                        Expression::Assignment { symbol, value: _ } => {
-                            instr!(self, LB, self.get_var(symbol)?);
-                        }
-                        _ => self.switch()?,
+                    if let Expression::Assignment { symbol, value: _ } = right {
+                        instr!(self, LB, self.get_var(symbol)?);
+                    } else {
+                        self.switch()?;
                     }
                     self.put_into_a(left)?;
                 }

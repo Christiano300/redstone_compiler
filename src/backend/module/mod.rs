@@ -1,4 +1,5 @@
 mod io;
+mod ram;
 mod screen;
 
 use std::cell::RefCell;
@@ -10,6 +11,7 @@ thread_local! {
         let mut map = HashMap::new();
         register(&mut map, "io", io::module);
         register(&mut map, "screen", screen::module);
+        register(&mut map, "ram", ram::module);
         map
     })
 }

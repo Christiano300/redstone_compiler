@@ -106,6 +106,8 @@ impl Debug for Instruction {
     }
 }
 
+use crate::backend::compiler::RamPage;
+
 use super::{compiler::RegisterContents, ComputerState};
 
 impl Instruction {
@@ -168,7 +170,18 @@ impl Instruction {
             IV::LCL => on.c = RC::Number(self.arg.unwrap_or(0).into()),
             IV::LC => on.c = RC::Variable(self.arg.unwrap_or(0)),
             IV::RR => on.a = RC::Unknown,
-            IV::INB => on.b = RC::Unknown,
+            IV::INB => {
+                on.b = match on.b {
+                    RC::Number(value) => RC::Number(value + 1),
+                    _ => RC::Unknown,
+                }
+            }
+            IV::RC => {
+                on.ram_page = match on.b {
+                    RC::Number(address) => RamPage::ThisOne((address / 16).try_into().unwrap_or(0)),
+                    _ => RamPage::Unknown,
+                }
+            }
             _ => {}
         }
     }
