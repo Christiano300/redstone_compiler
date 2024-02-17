@@ -21,6 +21,7 @@ pub enum Error {
     UnknownMethod(String),
     InvalidArgs(String),
     SomethingElseWentWrong(String),
+    ModuleInitTwice(String),
 }
 
 type Res<T = ()> = Result<T, Error>;
@@ -104,7 +105,7 @@ pub struct Compiler {
     scopes: Vec1<Scope>,
     main_scope: Vec<Instr>,
     modules: HashSet<String>,
-    variables: [bool; VAR_SLOTS],
+    pub variables: [bool; VAR_SLOTS],
     pub module_state: HashMap<&'static str, Box<dyn Any>>,
 }
 
@@ -117,6 +118,12 @@ impl Compiler {
             variables: [false; VAR_SLOTS],
             module_state: HashMap::new(),
         }
+    }
+
+    pub fn get_module_state<'a, V: 'static>(&'a mut self, key: &'static str) -> Option<&'a mut V> {
+        let value = self.module_state.get_mut(key)?;
+
+        value.downcast_mut::<V>()
     }
 
     fn insert_inline_var(&mut self, symbol: String, value: i16) {
@@ -213,7 +220,16 @@ impl Compiler {
                             "{module}, that module doesn't exist"
                         )));
                     }
+                    MODULES.with(|modules| {
+                        if let Some(ref mut init) =
+                            &mut modules.borrow_mut().get_mut(&module).unwrap().init
+                        {
+                            return init(&mut self);
+                        }
+                        Ok(())
+                    })?;
                     self.modules.insert(module);
+
                     Ok(())
                 }
                 Expression::VarDeclaration { symbol } => {

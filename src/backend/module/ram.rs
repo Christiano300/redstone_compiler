@@ -3,9 +3,6 @@ ram.read(where) # return
 ram.write(what, where) # also return
 ram.copy(from, to) # also return
 
-ram.use_list()
-ram.add_to_list(what) # also return
-ram.pop_list() # return
 */
 
 use crate::{
@@ -114,12 +111,4 @@ fn put_address(compiler: &mut Compiler, address: &Expression) -> Res {
         }
     }
     Ok(())
-}
-
-fn find_pointer_var_slot(slots: &[bool; 32]) -> Res<usize> {
-    slots
-        .iter()
-        .rev()
-        .position(|slot| !*slot)
-        .ok_or(Error::TooManyVars)
 }

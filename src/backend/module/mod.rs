@@ -1,4 +1,5 @@
 mod io;
+mod list;
 mod ram;
 mod screen;
 
@@ -9,9 +10,10 @@ use std::collections::HashMap;
 thread_local! {
     pub static MODULES: RefCell<HashMap<String, Module>> = RefCell::new({
         let mut map = HashMap::new();
-        register(&mut map, "io", io::module);
-        register(&mut map, "screen", screen::module);
-        register(&mut map, "ram", ram::module);
+        register(&mut map, "io", io::module, None);
+        register(&mut map, "screen", screen::module, None);
+        register(&mut map, "ram", ram::module, None);
+        register(&mut map, "list", list::module, Some(Box::from(list::init)));
         map
     })
 }
@@ -22,20 +24,28 @@ use super::{Compiler, Error, ModuleCall};
 
 pub type Handler = dyn FnMut(&mut Compiler, &ModuleCall) -> Res;
 
+pub type Init = dyn FnMut(&mut Compiler) -> Res;
+
 pub struct Module {
     pub name: String,
     pub handler: Box<Handler>,
+    pub init: Option<Box<Init>>,
 }
 
-fn register<F>(modules: &mut HashMap<String, Module>, name: &'static str, handler: F)
-where
-    F: FnMut(&mut Compiler, &ModuleCall) -> Res + 'static,
+fn register<H>(
+    modules: &mut HashMap<String, Module>,
+    name: &'static str,
+    handler: H,
+    init: Option<Box<Init>>,
+) where
+    H: FnMut(&mut Compiler, &ModuleCall) -> Res + 'static,
 {
     modules.insert(
         name.to_string(),
         Module {
             name: name.to_string(),
             handler: Box::from(handler),
+            init,
         },
     );
 }
