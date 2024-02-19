@@ -43,6 +43,11 @@ const fn is_skippable(src: char) -> bool {
 
 use Token as T;
 
+/// Transform source code into Tokens
+///
+/// # Errors
+///
+/// This function will return an error if there is an invalid character
 pub fn tokenize(source_code: &str) -> Result<Vec<Token>, String> {
     let mut tokens = vec![];
 

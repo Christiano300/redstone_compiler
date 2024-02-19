@@ -58,7 +58,7 @@ enum Arg {
 fn arg_parse<'a, const COUNT: usize>(
     compiler: &mut Compiler,
     types: [Arg; COUNT],
-    args: &'a Vec<Expression>,
+    args: &'a [Expression],
 ) -> Res<[&'a Expression; COUNT]> {
     if types.len() != args.len() {
         return Err(Error::InvalidArgs("Wrong number of Arguments".to_string()));

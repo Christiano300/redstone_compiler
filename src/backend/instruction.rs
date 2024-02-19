@@ -70,6 +70,12 @@ impl InstructionVariant {
         u8::from(self.instant()) | self.id() << 1
     }
 
+    /// Converts a normal jump into a disc jump
+    ///
+    /// # Panics
+    ///
+    /// Panics if instruction is not a valid jump
+    #[must_use]
     pub fn to_disc_jump(&self) -> Self {
         assert!(
             !self.disc_jump() && self.jump() && !matches!(self.id(), 0..=6),
@@ -111,15 +117,27 @@ use crate::backend::compiler::RamPage;
 use super::{compiler::RegisterContents, ComputerState};
 
 impl Instruction {
+    /// Creates a new [`Instruction`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if an invalid number of args is supplied
+    #[must_use]
     pub const fn new(variant: &'static InstructionVariant, arg: Option<u8>) -> Self {
         assert!(variant.has_arg() == arg.is_some(),);
         Self { variant, arg }
     }
 
+    #[must_use]
     pub fn to_bin(&self) -> u16 {
         u16::from(self.variant.to_byte()) << 8 | u16::from(self.arg.unwrap_or(0))
     }
 
+    /// Used by Debug and Display
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if something goes wrong, apparently
     pub fn to_string(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.arg {
             None => write!(f, "{}", self.variant.name()),
