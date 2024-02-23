@@ -63,6 +63,7 @@ pub enum Operator {
 
 impl Operator {
     #[inline]
+    #[must_use]
     pub const fn is_commutative(self) -> bool {
         !matches!(self, Self::Minus)
     }
@@ -102,6 +103,7 @@ impl EqualityOperator {
     }
 }
 
+#[must_use]
 pub const fn operator(symbol: char) -> Option<Operator> {
     use Operator as O;
     match symbol {
@@ -115,6 +117,7 @@ pub const fn operator(symbol: char) -> Option<Operator> {
     }
 }
 
+#[must_use]
 pub const fn eq_operator(symbol: char, eq_after: bool) -> Option<EqualityOperator> {
     use EqualityOperator as EO;
     match (symbol, eq_after) {

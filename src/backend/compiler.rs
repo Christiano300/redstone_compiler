@@ -45,6 +45,15 @@ macro_rules! instr {
     };
 }
 
+/// compile that boi
+///
+/// # Panics
+///
+/// Panics if not a Program
+///
+/// # Errors
+///
+/// on any compiler error
 pub fn compile_program(ast: Expression) -> Res<Vec<Instruction>> {
     if let Expression::Program(body) = ast {
         let compiler = Compiler::new();
@@ -175,6 +184,11 @@ impl Compiler {
         Ok(slot)
     }
 
+    /// get slot of a variable
+    ///
+    /// # Errors
+    ///
+    /// on any compiler error
     pub fn get_var(&self, symbol: &String) -> Res<u8> {
         for scope in self.scopes.iter().rev() {
             let entry = scope.variables.get(symbol);
@@ -188,6 +202,11 @@ impl Compiler {
         )))
     }
 
+    /// Inserts a temporary variable
+    ///
+    /// # Errors
+    ///
+    /// When there are too many variables
     pub fn insert_temp_var(&mut self) -> Res<u8> {
         self.get_next_available_slot().ok_or(Error::TooManyVars)
     }
@@ -430,6 +449,10 @@ impl Compiler {
         }
     }
 
+    /// evaluate expression and put result into a register
+    /// # Errors
+    ///
+    /// on any compiler error
     pub fn eval_expr(&mut self, expr: &Expression) -> Res {
         match expr {
             Expression::NumericLiteral(..) => self.put_into_a(expr)?,
@@ -449,6 +472,7 @@ impl Compiler {
         Ok(())
     }
 
+    #[must_use]
     pub const fn can_put_into_a(expr: &Expression) -> bool {
         use Expression as E;
         match expr {
@@ -458,6 +482,7 @@ impl Compiler {
         }
     }
 
+    #[must_use]
     pub const fn can_put_into_b(expr: &Expression) -> bool {
         use Expression as E;
         matches!(expr, E::NumericLiteral(..) | E::Identifier(..))
@@ -550,6 +575,10 @@ impl Compiler {
     }
 
     /// tries to get the value known at compile time
+    ///
+    /// # Errors
+    ///
+    /// on any compiler error
     pub fn try_get_constant(&mut self, value: &Expression) -> Res<Option<i16>> {
         Ok(match value {
             Expression::NumericLiteral(value) => Some(*value),
@@ -564,6 +593,10 @@ impl Compiler {
     }
 
     /// puts a into b
+    ///
+    /// # Errors
+    ///
+    /// if there are too many variables
     pub fn switch(&mut self) -> Res {
         let temp = self.insert_temp_var()?;
         instr!(self, SVA, temp);
@@ -573,6 +606,10 @@ impl Compiler {
     }
 
     /// expr should be either `NumericLiteral`, `Identifier` or `Assignment`
+    ///
+    /// # Errors
+    ///
+    /// if variable doesn't exist or called on a wrong expression
     pub fn put_into_a(&mut self, expr: &Expression) -> Res {
         use Expression as E;
         match expr {
@@ -611,6 +648,10 @@ impl Compiler {
     }
 
     /// expr should be either `NumericLiteral` or `Identifier`
+    ///
+    /// # Errors
+    ///
+    /// if variable doesn't exist or called on a wrong expression
     pub fn put_into_b(&mut self, expr: &Expression) -> Res {
         use Expression as E;
         match expr {

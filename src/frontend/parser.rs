@@ -19,6 +19,7 @@ macro_rules! match_fn {
 }
 
 impl Parser {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -46,6 +47,11 @@ impl Parser {
         Ok(token)
     }
 
+    /// Transform source code into an AST
+    ///
+    /// # Errors
+    ///
+    /// when any error occurs
     pub fn produce_ast(&mut self, source_code: &str) -> Res {
         let tokens = tokenize(source_code)?;
         self.tokens = VecDeque::from(tokens);

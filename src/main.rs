@@ -3,13 +3,9 @@ use std::{
     io::{self, Read, Write},
 };
 
-use frontend::Parser;
+use redstone_compiler::frontend::Parser;
 
-use backend::compile_program;
-
-#[allow(dead_code)]
-mod backend;
-mod frontend;
+use redstone_compiler::backend::compile_program;
 
 fn main() -> io::Result<()> {
     let program = input("Enter program or leave empty for repl: ")?;
