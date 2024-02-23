@@ -1,4 +1,7 @@
-- Control flow
+- CLI (autocomplete)
+- Discs
+- Fix Paren Error
 - Token & AST Position for errors
-- LSP
 - MCSchematic
+- LSP
+- IR

@@ -17,7 +17,10 @@ pub enum Token {
     Elif,
     Else,
     End,
+    Forever,
+    While,
     Pass,
+    Debug,
     Use,
     Var,
     Eof,
@@ -30,9 +33,12 @@ fn keyword(string: String) -> Token {
         "elif" | "elseif" => Token::Elif,
         "else" => Token::Else,
         "end" => Token::End,
+        "forever" => Token::Forever,
+        "while" => Token::While,
         "pass" => Token::Pass,
         "use" => Token::Use,
         "var" => Token::Var,
+        "debug" => Token::Debug,
         _ => Token::Identifier(string),
     }
 }

@@ -12,6 +12,13 @@ pub enum Expression {
         paths: Vec<(Expression, Vec<Expression>)>,
         alternate: Option<Vec<Expression>>,
     },
+    EndlessLoop {
+        body: Vec<Expression>,
+    },
+    WhileLoop {
+        condition: Box<Expression>,
+        body: Vec<Expression>,
+    },
     #[default]
     Pass,
     BinaryExpr {
@@ -41,6 +48,7 @@ pub enum Expression {
         args: Vec<Expression>,
         function: Box<Expression>,
     },
+    Debug,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -68,6 +76,30 @@ pub enum EqualityOperator {
     GreaterEq,
     Less,
     LessEq,
+}
+
+impl EqualityOperator {
+    pub const fn opposite(self) -> Self {
+        match self {
+            Self::EqualTo => Self::NotEqual,
+            Self::NotEqual => Self::EqualTo,
+            Self::Greater => Self::LessEq,
+            Self::GreaterEq => Self::Less,
+            Self::Less => Self::GreaterEq,
+            Self::LessEq => Self::Greater,
+        }
+    }
+
+    pub const fn turnaround(self) -> Self {
+        match self {
+            Self::EqualTo => Self::EqualTo,
+            Self::NotEqual => Self::NotEqual,
+            Self::Greater => Self::Less,
+            Self::GreaterEq => Self::LessEq,
+            Self::Less => Self::Greater,
+            Self::LessEq => Self::GreaterEq,
+        }
+    }
 }
 
 pub const fn operator(symbol: char) -> Option<Operator> {

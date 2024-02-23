@@ -5,9 +5,9 @@ use std::{
 
 use vec1::{vec1, Vec1};
 
-use crate::frontend::{Expression, Operator};
+use crate::frontend::{EqualityOperator, Expression, Operator};
 
-use super::{module::MODULES, Instruction};
+use super::{module::MODULES, Instruction, InstructionVariant};
 
 const VAR_SLOTS: usize = 32;
 
@@ -22,6 +22,9 @@ pub enum Error {
     InvalidArgs(String),
     SomethingElseWentWrong(String),
     ModuleInitTwice(String),
+    EqInNormalExpr,
+    NormalInEqExpr,
+    UseOutsideGlobalScope,
 }
 
 type Res<T = ()> = Result<T, Error>;
@@ -30,13 +33,13 @@ type Res<T = ()> = Result<T, Error>;
 macro_rules! instr {
     ($self:ident, $variant:ident, $arg:expr) => {
         $self.push_instr($crate::backend::Instruction::new(
-            &$crate::backend::InstructionVariant::$variant,
+            $crate::backend::InstructionVariant::$variant,
             Some($arg),
         ))
     };
     ($self:ident, $variant:ident) => {
         $self.push_instr($crate::backend::Instruction::new(
-            &$crate::backend::InstructionVariant::$variant,
+            $crate::backend::InstructionVariant::$variant,
             None,
         ))
     };
@@ -105,6 +108,7 @@ pub struct Compiler {
     scopes: Vec1<Scope>,
     main_scope: Vec<Instr>,
     modules: HashSet<String>,
+    jump_marks: HashMap<u8, u8>,
     pub variables: [bool; VAR_SLOTS],
     pub module_state: HashMap<&'static str, Box<dyn Any>>,
 }
@@ -115,9 +119,21 @@ impl Compiler {
             scopes: vec1!(Scope::default()),
             modules: HashSet::new(),
             main_scope: vec![],
+            jump_marks: HashMap::new(),
             variables: [false; VAR_SLOTS],
             module_state: HashMap::new(),
         }
+    }
+
+    fn scope_len(scope: &Vec<Instr>) -> u8 {
+        let mut sum = 0;
+        for i in scope {
+            sum += match i {
+                Instr::Code(_) => 1,
+                Instr::Scope(s) => Self::scope_len(s),
+            }
+        }
+        sum
     }
 
     pub fn get_module_state<'a, V: 'static>(&'a mut self, key: &'static str) -> Option<&'a mut V> {
@@ -192,6 +208,7 @@ impl Compiler {
             .push(Instr::Scope(self.scopes.split_off_first().0.instructions));
         let mut instructions = vec![];
         Self::resolve_scope(self.main_scope, &mut instructions);
+        Self::insert_jump_marks(&mut instructions, &self.jump_marks);
         instructions
     }
 
@@ -206,42 +223,187 @@ impl Compiler {
         self.scopes.last_mut()
     }
 
-    fn generate_assembly(mut self, body: Vec<Expression>) -> Res<Vec<Instruction>> {
-        body.into_iter().try_for_each(|line| {
-            match line {
-                Expression::InlineDeclaration { symbol, value } => {
-                    let value = self.eval_after_inline(&value)?;
-                    self.insert_inline_var(symbol, value);
-                    Ok(())
-                }
-                Expression::Use(module) => {
-                    if !MODULES.with(|modules| modules.borrow().contains_key(&module)) {
-                        return Err(Error::UnknownModule(format!(
-                            "{module}, that module doesn't exist"
-                        )));
-                    }
-                    MODULES.with(|modules| {
-                        if let Some(ref mut init) =
-                            &mut modules.borrow_mut().get_mut(&module).unwrap().init
-                        {
-                            return init(&mut self);
-                        }
-                        Ok(())
-                    })?;
-                    self.modules.insert(module);
+    fn is_root_scope(&self) -> bool {
+        self.scopes.len() == 1
+    }
 
-                    Ok(())
-                }
-                Expression::VarDeclaration { symbol } => {
-                    self.insert_var(symbol.as_str())?;
-                    Ok(())
-                }
-                expr => self.eval_expr(&expr),
-            }?;
-            Ok::<(), Error>(())
-        })?;
+    fn generate_assembly(mut self, body: Vec<Expression>) -> Res<Vec<Instruction>> {
+        body.into_iter()
+            .try_for_each(|line| self.eval_statement(line))?;
 
         Ok(self.get_instructions())
+    }
+
+    fn insert_jump_mark(&mut self) -> u8 {
+        let id = self.jump_marks.len() as u8;
+        self.jump_marks.insert(id, 0);
+        id
+    }
+
+    fn eval_statement(&mut self, line: Expression) -> Res {
+        match line {
+            Expression::InlineDeclaration { symbol, value } => {
+                let value = self.eval_after_inline(&value)?;
+                self.insert_inline_var(symbol, value);
+                Ok(())
+            }
+            Expression::Use(module) => {
+                if !self.is_root_scope() {
+                    return Err(Error::UseOutsideGlobalScope);
+                }
+                if !MODULES.with(|modules| modules.borrow().contains_key(&module)) {
+                    return Err(Error::UnknownModule(format!(
+                        "{module}, that module doesn't exist"
+                    )));
+                }
+                MODULES.with(|modules| {
+                    if let Some(ref mut init) =
+                        &mut modules.borrow_mut().get_mut(&module).unwrap().init
+                    {
+                        return init(self);
+                    }
+                    Ok(())
+                })?;
+                self.modules.insert(module);
+
+                Ok(())
+            }
+            Expression::VarDeclaration { symbol } => {
+                self.insert_var(symbol.as_str())?;
+                Ok(())
+            }
+            Expression::Pass => Ok(()),
+            Expression::EndlessLoop { body } => {
+                let mark = Self::scope_len(&self.scopes.first().instructions);
+                let id = self.insert_jump_mark();
+                self.jump_marks.insert(id, mark);
+                self.scopes.push(Scope::default());
+                body.into_iter()
+                    .try_for_each(|line| self.eval_statement(line))?;
+                self.pop_scope();
+
+                instr!(self, JMP, id);
+
+                Ok(())
+            }
+            Expression::WhileLoop { condition, body } => {
+                let (left, right, operator) = eval_condition(*condition)?;
+
+                let start_id = self.insert_jump_mark();
+                let end_id = self.insert_jump_mark();
+
+                self.put_comparison((&left, &right, operator.opposite()), end_id)?;
+
+                let start = Self::scope_len(&self.scopes.first().instructions);
+
+                self.jump_marks.insert(start_id, start);
+
+                self.push_scope(body)?;
+
+                self.put_comparison((&left, &right, operator), start_id)?;
+
+                let instructions = self.scopes.pop().unwrap().instructions;
+                self.last_scope()
+                    .instructions
+                    .push(Instr::Scope(instructions));
+                let end = Self::scope_len(&self.scopes.first().instructions);
+
+                self.jump_marks.insert(end_id, end);
+
+                Ok(())
+            }
+            Expression::Conditional {
+                condition,
+                body,
+                paths,
+                alternate,
+            } => self.eval_conditional(*condition, body, paths, alternate)?,
+            expr => self.eval_expr(&expr),
+        }?;
+        Ok(())
+    }
+
+    fn eval_conditional(
+        &mut self,
+        condition: Expression,
+        body: Vec<Expression>,
+        paths: Vec<(Expression, Vec<Expression>)>,
+        alternate: Option<Vec<Expression>>,
+    ) -> Result<Result<(), Error>, Error> {
+        let (left, right, operator) = eval_condition(condition)?;
+        let end_id = self.insert_jump_mark();
+        let mut next_mark_id = self.insert_jump_mark();
+        self.put_comparison((&left, &right, operator.opposite()), next_mark_id)?;
+        self.push_scope(body)?;
+        if !paths.is_empty() || alternate.is_some() {
+            instr!(self, JMP, end_id);
+        }
+        self.pop_scope();
+        self.jump_marks.insert(
+            next_mark_id,
+            Self::scope_len(&self.scopes.first().instructions),
+        );
+        let path_len = paths.len();
+        paths.into_iter().enumerate().try_for_each(|path| {
+            let (index, (condition, body)) = path;
+            let (left, right, operator) = eval_condition(condition)?;
+
+            next_mark_id = self.insert_jump_mark();
+
+            self.put_comparison((&left, &right, operator.opposite()), next_mark_id)?;
+
+            self.push_scope(body)?;
+
+            if index != path_len - 1 || alternate.is_some() {
+                instr!(self, JMP, end_id);
+            }
+
+            self.pop_scope();
+            self.jump_marks.insert(
+                next_mark_id,
+                Self::scope_len(&self.scopes.first().instructions),
+            );
+
+            Ok(())
+        })?;
+        if let Some(body) = alternate {
+            self.push_scope(body)?;
+            self.pop_scope();
+        }
+        self.jump_marks
+            .insert(end_id, Self::scope_len(&self.scopes.first().instructions));
+        Ok(Ok(()))
+    }
+
+    fn pop_scope(&mut self) {
+        let instructions = self.scopes.pop().unwrap().instructions;
+        self.last_scope()
+            .instructions
+            .push(Instr::Scope(instructions));
+    }
+
+    fn push_scope(&mut self, body: Vec<Expression>) -> Res {
+        self.scopes.push(Scope::default());
+        body.into_iter()
+            .try_for_each(|line| self.eval_statement(line))?;
+        Ok(())
+    }
+
+    fn put_comparison(
+        &mut self,
+        condition: (&Expression, &Expression, EqualityOperator),
+        jump_to: u8,
+    ) -> Res {
+        let (left, right, operator) = condition;
+        let mut op = operator;
+        if self.put_ab(left, right, true)? {
+            op = op.turnaround();
+        }
+        self.push_instr(Instruction::new(
+            InstructionVariant::from_op(op),
+            Some(jump_to),
+        ));
+        Ok(())
     }
 
     fn eval_after_inline(&mut self, expr: &Expression) -> Res<i16> {
@@ -279,6 +441,9 @@ impl Compiler {
             } => self.eval_binary_expr(left, right, *operator)?,
             Expression::Assignment { symbol, value } => self.eval_assignment(symbol, value)?,
             Expression::Call { args, function } => self.eval_call(function, args)?,
+            Expression::EqExpr { .. } => return Err(Error::EqInNormalExpr),
+            Expression::Debug => instr!(self, LAL, 17),
+
             _ => todo!("unsupported expression: {:?}", expr),
         }
         Ok(())
@@ -304,14 +469,25 @@ impl Compiler {
         right: &Expression,
         operator: Operator,
     ) -> Res {
+        self.put_ab(left, right, operator.is_commutative())?;
+
+        self.put_op(operator);
+        Ok(())
+    }
+
+    /// # Returns
+    /// if the arguments were swapped
+    fn put_ab(&mut self, left: &Expression, right: &Expression, is_commutative: bool) -> Res<bool> {
+        let mut swapped = false;
         match (Self::can_put_into_a(left), Self::can_put_into_b(right)) {
             (true, true) => {
-                self.eval_simple_expr(left, right, operator)?;
+                self.eval_simple_expr(left, right)?;
             }
             (true, false) => {
                 self.eval_expr(right)?;
-                if operator.is_commutative() && Self::can_put_into_b(left) {
+                if is_commutative && Self::can_put_into_b(left) {
                     self.put_into_b(left)?;
+                    swapped = true;
                 } else {
                     // if we just saved a variable we use it to switch
                     if let Expression::Assignment { symbol, value: _ } = right {
@@ -321,12 +497,10 @@ impl Compiler {
                     }
                     self.put_into_a(left)?;
                 }
-                self.put_op(operator);
             }
             (false, true) => {
                 self.eval_expr(left)?;
                 self.put_into_b(right)?;
-                self.put_op(operator);
             }
             (false, false) => {
                 self.eval_expr(right)?;
@@ -340,10 +514,9 @@ impl Compiler {
                     instr!(self, LB, temp);
                     self.cleanup_temp_var(temp);
                 }
-                self.put_op(operator);
             }
         }
-        Ok(())
+        Ok(swapped)
     }
 
     fn eval_assignment(&mut self, symbol: &str, value: &Expression) -> Res {
@@ -356,17 +529,10 @@ impl Compiler {
         Ok(())
     }
 
-    fn eval_simple_expr(
-        &mut self,
-        left: &Expression,
-        right: &Expression,
-        operator: Operator,
-    ) -> Res {
+    fn eval_simple_expr(&mut self, left: &Expression, right: &Expression) -> Res {
         self.put_into_a(left)?;
 
         self.put_into_b(right)?;
-
-        self.put_op(operator);
 
         Ok(())
     }
@@ -543,4 +709,30 @@ impl Compiler {
             Ok(())
         })
     }
+
+    fn insert_jump_marks(instructions: &mut [Instruction], jump_marks: &HashMap<u8, u8>) {
+        for i in instructions.iter_mut() {
+            if i.variant.is_jump() {
+                i.arg = Some(
+                    *jump_marks
+                        .get(&i.arg.expect("jump does not have arg"))
+                        .expect("Invalid jump mark"),
+                );
+            }
+        }
+    }
+}
+
+fn eval_condition(
+    condition: Expression,
+) -> Res<(Box<Expression>, Box<Expression>, EqualityOperator)> {
+    let Expression::EqExpr {
+        left,
+        right,
+        operator,
+    } = condition
+    else {
+        return Err(Error::NormalInEqExpr);
+    };
+    Ok((left, right, operator))
 }

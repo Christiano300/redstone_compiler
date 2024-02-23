@@ -2,7 +2,6 @@
 ram.read(where) # return
 ram.write(what, where) # also return
 ram.copy(from, to) # also return
-
 */
 
 use crate::{

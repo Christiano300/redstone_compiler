@@ -68,6 +68,8 @@ impl Parser {
             }
             Token::Use => self.parse_use_statement()?,
             Token::Var => self.parse_var_declaration()?,
+            Token::Forever => self.parse_endless()?,
+            Token::While => self.parse_while()?,
             _ => self.parse_expression()?,
         })
     }
@@ -118,6 +120,38 @@ impl Parser {
             return Err("Cannot have empty block. Use 'pass'".to_string());
         }
         Ok((condition, body))
+    }
+
+    fn parse_endless(&mut self) -> Res {
+        use Token as T;
+        self.eat()?;
+        let mut body = vec![];
+        while !matches!(self.at()?, T::End) {
+            body.push(self.parse_statement()?);
+        }
+        self.eat()?;
+        if body.is_empty() {
+            return Err("Cannot have empty block. Use 'pass'".to_string());
+        }
+        Ok(Expression::EndlessLoop { body })
+    }
+
+    fn parse_while(&mut self) -> Res {
+        use Token as T;
+        self.eat()?;
+        let condition = self.parse_expression()?;
+        let mut body = vec![];
+        while !matches!(self.at()?, T::End) {
+            body.push(self.parse_statement()?);
+        }
+        self.eat()?;
+        if body.is_empty() {
+            return Err("Cannot have empty block. Use 'pass'".to_string());
+        }
+        Ok(Expression::WhileLoop {
+            condition: Box::from(condition),
+            body,
+        })
     }
 
     fn parse_use_statement(&mut self) -> Res {
@@ -369,6 +403,7 @@ impl Parser {
         Ok(match token {
             Token::Identifier(name) => Expression::Identifier(name),
             Token::Number(value) => Expression::NumericLiteral(value),
+            Token::Debug => Expression::Debug,
             Token::OpenParen => {
                 let value = self.parse_expression()?;
                 self.eat_if(
@@ -378,12 +413,10 @@ impl Parser {
                 value
             }
             Token::Eof => return Err("Unexpected EOF while parsing".to_string()),
-            _ => {
-                return Err(format!(
-                    "Unexpected token found while parsing! {:?}",
-                    self.at()?
-                ))
-            }
+            _ => panic!(
+                "{}",
+                format!("Unexpected token found while parsing: {token:?}")
+            ),
         })
     }
 }

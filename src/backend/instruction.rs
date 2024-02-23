@@ -7,7 +7,7 @@ use std::{
 use table_enum::table_enum;
 
 table_enum! {
-    #[derive(Debug)]
+    #[derive(Debug, Clone, Copy)]
     #[allow(unused)]
     pub enum InstructionVariant(
     name: &'static str,
@@ -66,11 +66,11 @@ table_enum! {
 }}
 
 impl InstructionVariant {
-    fn to_byte(&self) -> u8 {
+    fn to_byte(self) -> u8 {
         u8::from(self.instant()) | self.id() << 1
     }
 
-    pub fn to_disc_jump(&self) -> Self {
+    pub fn to_disc_jump(self) -> Self {
         assert!(
             !self.disc_jump() && self.jump() && !matches!(self.id(), 0..=6),
             "{self:?} is not a valid jump command"
@@ -87,10 +87,25 @@ impl InstructionVariant {
             _ => panic!(),
         }
     }
+
+    pub const fn is_jump(self) -> bool {
+        self.jump()
+    }
+
+    pub const fn from_op(op: EqualityOperator) -> Self {
+        match op {
+            EqualityOperator::EqualTo => Self::JE,
+            EqualityOperator::NotEqual => Self::JNE,
+            EqualityOperator::Greater => Self::JG,
+            EqualityOperator::GreaterEq => Self::JGE,
+            EqualityOperator::Less => Self::JL,
+            EqualityOperator::LessEq => Self::JLE,
+        }
+    }
 }
 
 pub struct Instruction {
-    pub variant: &'static InstructionVariant,
+    pub variant: InstructionVariant,
     pub arg: Option<u8>,
 }
 
@@ -106,12 +121,12 @@ impl Debug for Instruction {
     }
 }
 
-use crate::backend::compiler::RamPage;
+use crate::{backend::compiler::RamPage, frontend::EqualityOperator};
 
 use super::{compiler::RegisterContents, ComputerState};
 
 impl Instruction {
-    pub const fn new(variant: &'static InstructionVariant, arg: Option<u8>) -> Self {
+    pub const fn new(variant: InstructionVariant, arg: Option<u8>) -> Self {
         assert!(variant.has_arg() == arg.is_some(),);
         Self { variant, arg }
     }
