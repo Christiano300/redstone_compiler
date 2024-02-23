@@ -7,7 +7,7 @@ use std::{
 use table_enum::table_enum;
 
 table_enum! {
-    #[derive(Debug, Clone, Copy)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     #[allow(unused)]
     pub enum InstructionVariant(
     name: &'static str,
@@ -112,6 +112,7 @@ impl InstructionVariant {
     }
 }
 
+#[derive(PartialEq, Eq)]
 pub struct Instruction {
     pub variant: InstructionVariant,
     pub arg: Option<u8>,
