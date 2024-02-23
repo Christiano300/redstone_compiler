@@ -11,7 +11,7 @@ use super::{module::MODULES, Instruction, InstructionVariant};
 
 const VAR_SLOTS: usize = 32;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     NonexistentVar(String),
     NonexistentInlineVar(String),
@@ -54,6 +54,20 @@ macro_rules! instr {
 /// # Errors
 ///
 /// on any compiler error
+///
+/// # Examples
+///
+/// ```
+/// use redstone_compiler::{frontend::Expression, backend::{compile_program, Instruction, InstructionVariant}};
+/// let ast = Expression::Program(vec![Expression::NumericLiteral(5)]);
+///
+/// let compiled = compile_program(ast);
+///
+/// assert_eq!(
+///     compiled,
+///     Ok(vec![Instruction::new(&InstructionVariant::LAL, Some(5))])
+/// );
+/// ```
 pub fn compile_program(ast: Expression) -> Res<Vec<Instruction>> {
     if let Expression::Program(body) = ast {
         let compiler = Compiler::new();

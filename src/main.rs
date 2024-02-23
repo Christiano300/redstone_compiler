@@ -1,4 +1,6 @@
 use std::{
+    collections::VecDeque,
+    env,
     fs::{self, create_dir_all, File},
     io::{self, Read, Write},
 };
@@ -8,7 +10,12 @@ use redstone_compiler::frontend::Parser;
 use redstone_compiler::backend::compile_program;
 
 fn main() -> io::Result<()> {
-    let program = input("Enter program or leave empty for repl: ")?;
+    let mut args: VecDeque<_> = env::args().collect();
+
+    let program = match args.pop_front() {
+        None => input("Enter program or leave empty for repl: ")?,
+        Some(p) => p,
+    };
 
     if program.is_empty() {
         return repl();
