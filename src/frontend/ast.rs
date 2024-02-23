@@ -80,6 +80,7 @@ pub enum EqualityOperator {
 }
 
 impl EqualityOperator {
+    #[must_use]
     pub const fn opposite(self) -> Self {
         match self {
             Self::EqualTo => Self::NotEqual,
@@ -91,6 +92,7 @@ impl EqualityOperator {
         }
     }
 
+    #[must_use]
     pub const fn turnaround(self) -> Self {
         match self {
             Self::EqualTo => Self::EqualTo,

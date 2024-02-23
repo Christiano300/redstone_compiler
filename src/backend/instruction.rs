@@ -94,10 +94,12 @@ impl InstructionVariant {
         }
     }
 
+    #[must_use]
     pub const fn is_jump(self) -> bool {
         self.jump()
     }
 
+    #[must_use]
     pub const fn from_op(op: EqualityOperator) -> Self {
         match op {
             EqualityOperator::EqualTo => Self::JE,
