@@ -11,6 +11,7 @@ use redstone_compiler::backend::compile_program;
 
 fn main() -> io::Result<()> {
     let mut args: VecDeque<_> = env::args().collect();
+    args.pop_front();
 
     let program = match args.pop_front() {
         None => input("Enter program or leave empty for repl: ")?,
@@ -21,13 +22,18 @@ fn main() -> io::Result<()> {
         return repl();
     }
 
-    let path = format!("programs/{program}/{program}.🖥️");
+    let dir = match env::current_dir() {
+        Ok(p) if p.ends_with("programs") => program.clone(),
+        _ => format!("programs/{program}"),
+    };
+    let path = format!("{dir}/{program}.🖥️");
     let Ok(mut file) = File::open(path.clone()) else {
         if input("Program doesn't exist, create? [Y/n]: ")?.as_str() == "n" {
             return Ok(());
         }
-        create_dir_all(format!("programs/{program}"))?;
-        return fs::write(path, "");
+        create_dir_all(dir).expect("something went wrong with creating the directory");
+        fs::write(path, "").expect("something went wrong with writing the program");
+        return Ok(());
     };
 
     let mut code = String::new();
@@ -56,7 +62,7 @@ fn main() -> io::Result<()> {
         .map(|instr| format!("{instr}\n"))
         .for_each(|line| asm_string.push_str(line.as_str()));
 
-    fs::write(format!("programs/{program}/{program}.asm"), asm_string)?;
+    fs::write(format!("{dir}/{program}.asm"), asm_string)?;
 
     Ok(())
 }
