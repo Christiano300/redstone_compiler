@@ -358,7 +358,7 @@ impl Parser {
     }
 
     fn parse_args(&mut self) -> Result<Vec<Expression>, String> {
-        self.eat_if(match_fn!(Token::OpenParen), "Expected '('")?;
+        self.eat_if(match_fn!(Token::OpenFuncParen), "Expected '('")?;
 
         let args = if matches!(self.at()?, Token::CloseParen) {
             vec![]

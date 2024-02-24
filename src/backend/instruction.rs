@@ -77,10 +77,8 @@ impl InstructionVariant {
     /// Panics if instruction is not a valid jump
     #[must_use]
     pub fn to_disc_jump(self) -> Self {
-        assert!(
-            !self.disc_jump() && self.jump() && !matches!(self.id(), 0..=6),
-            "{self:?} is not a valid jump command"
-        );
+        assert!(self.jump(), "{self:?} is not a valid jump command");
+        assert!(!self.disc_jump(), "{self:?} is a disc-jump");
 
         match self.id() {
             0 => Self::JMD,

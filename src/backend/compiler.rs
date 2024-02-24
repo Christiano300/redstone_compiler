@@ -240,15 +240,16 @@ impl Compiler {
         self.main_scope
             .push(Instr::Scope(self.scopes.split_off_first().0.instructions));
         let mut instructions = vec![];
-        Self::resolve_scope(self.main_scope, &mut instructions);
-        Self::insert_jump_marks(&mut instructions, &self.jump_marks);
+        Self::flatten_scope(self.main_scope, &mut instructions);
+        Self::insert_disc_jumps(&mut instructions, &mut self.jump_marks);
+        Self::replace_jump_marks(&mut instructions, &self.jump_marks);
         instructions
     }
 
-    fn resolve_scope(scope: Vec<Instr>, into: &mut Vec<Instruction>) {
+    fn flatten_scope(scope: Vec<Instr>, into: &mut Vec<Instruction>) {
         scope.into_iter().for_each(|i| match i {
             Instr::Code(instr) => into.push(instr),
-            Instr::Scope(s) => Self::resolve_scope(s, into),
+            Instr::Scope(s) => Self::flatten_scope(s, into),
         });
     }
 
@@ -766,7 +767,7 @@ impl Compiler {
         })
     }
 
-    fn insert_jump_marks(instructions: &mut [Instruction], jump_marks: &HashMap<u8, u8>) {
+    fn replace_jump_marks(instructions: &mut [Instruction], jump_marks: &HashMap<u8, u8>) {
         for i in instructions.iter_mut() {
             if i.variant.is_jump() {
                 i.arg = Some(
@@ -774,6 +775,47 @@ impl Compiler {
                         .get(&i.arg.expect("jump does not have arg"))
                         .expect("Invalid jump mark"),
                 );
+            }
+        }
+    }
+
+    fn move_jump_marks(jump_marks: &mut HashMap<u8, u8>, from: u8, by: u8) {
+        for (_, value) in jump_marks.iter_mut() {
+            if *value >= from {
+                *value += by;
+            }
+        }
+    }
+
+    fn insert_disc_jumps(instructions: &mut Vec<Instruction>, jump_marks: &mut HashMap<u8, u8>) {
+        loop {
+            let mut changes = false;
+
+            let mut i = 0;
+            while i < instructions.len() {
+                let instr = instructions
+                    .get_mut(i)
+                    .expect("Tried getting invalid instruction in insert_disc_jumps loop");
+                if instr.variant.is_jump() && !instr.variant.disc_jump() {
+                    let mark = instr.arg.expect("Jump instruction doesn't have arg");
+                    let current_page = i / 64;
+                    let jump_page = jump_marks.get(&mark).expect("Invalid jump mark") / 64;
+                    if current_page != jump_page as usize {
+                        instr.variant = instr.variant.to_disc_jump();
+                        instructions.insert(
+                            i,
+                            Instruction::new(InstructionVariant::LCL, Some(jump_page)),
+                        );
+                        Self::move_jump_marks(jump_marks, i as u8, 1);
+                        i += 1;
+                        changes = true;
+                    }
+                }
+                i += 1;
+            }
+
+            if !changes {
+                break;
             }
         }
     }

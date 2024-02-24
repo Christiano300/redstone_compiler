@@ -1,5 +1,9 @@
-- Discs
 - Token & AST Position for errors
+- negative numbers
+- bin/hex numbers
+- fix error with nested module calls
+- update cli again to test for directory in current location
 - MCSchematic
+- optimize disc jumps
 - LSP
 - IR
