@@ -58,11 +58,19 @@ fn main() -> io::Result<()> {
 
     let mut asm_string = String::new();
     assembly
-        .into_iter()
+        .iter()
         .map(|instr| format!("{instr}\n"))
         .for_each(|line| asm_string.push_str(line.as_str()));
 
     fs::write(format!("{dir}/{program}.asm"), asm_string)?;
+
+    let mut bin_string = String::new();
+    assembly
+        .iter()
+        .map(|instr| format!("{:b}", instr.to_bin()))
+        .for_each(|line| bin_string.push_str(line.as_str()));
+
+    fs::write(format!("{dir}/{program}.bin"), bin_string)?;
 
     Ok(())
 }

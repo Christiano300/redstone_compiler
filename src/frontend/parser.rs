@@ -334,10 +334,11 @@ impl Parser {
 
         Ok(left)
     }
+
     fn parse_call_member(&mut self) -> Res {
         let member = self.parse_member()?;
 
-        if matches!(self.at()?, Token::OpenParen) {
+        if matches!(self.at()?, Token::OpenFuncParen) {
             return self.parse_call(member);
         }
         Ok(member)
@@ -346,7 +347,7 @@ impl Parser {
     fn parse_call(&mut self, caller: Expression) -> Res {
         let args = self.parse_args()?;
 
-        if matches!(self.at()?, Token::OpenParen) {
+        if matches!(self.at()?, Token::OpenFuncParen) {
             return Err("no function chaining".to_string());
         }
 
@@ -357,7 +358,7 @@ impl Parser {
     }
 
     fn parse_args(&mut self) -> Result<Vec<Expression>, String> {
-        self.eat_if(match_fn!(Token::OpenParen), "Expected '('")?;
+        self.eat_if(match_fn!(Token::OpenFuncParen), "Expected '('")?;
 
         let args = if matches!(self.at()?, Token::CloseParen) {
             vec![]

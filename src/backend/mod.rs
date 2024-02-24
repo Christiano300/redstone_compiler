@@ -4,6 +4,6 @@ mod module;
 
 #[allow(unused)]
 pub use compiler::compile_program;
-pub use instruction::*;
+pub use instruction::{Instruction, InstructionVariant};
 
 use compiler::{Compiler, ComputerState, Error, ModuleCall};

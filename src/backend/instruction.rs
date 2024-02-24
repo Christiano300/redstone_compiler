@@ -66,10 +66,6 @@ table_enum! {
 }}
 
 impl InstructionVariant {
-    fn to_byte(self) -> u8 {
-        u8::from(self.instant()) | self.id() << 1
-    }
-
     /// Converts a normal jump into a disc jump
     ///
     /// # Panics
@@ -77,10 +73,8 @@ impl InstructionVariant {
     /// Panics if instruction is not a valid jump
     #[must_use]
     pub fn to_disc_jump(self) -> Self {
-        assert!(
-            !self.disc_jump() && self.jump() && !matches!(self.id(), 0..=6),
-            "{self:?} is not a valid jump command"
-        );
+        assert!(self.jump(), "{self:?} is not a valid jump command");
+        assert!(!self.disc_jump(), "{self:?} is a disc-jump");
 
         match self.id() {
             0 => Self::JMD,
@@ -109,6 +103,14 @@ impl InstructionVariant {
             EqualityOperator::Less => Self::JL,
             EqualityOperator::LessEq => Self::JLE,
         }
+    }
+
+    #[must_use]
+    pub const fn to_byte(&self) -> u8 {
+        (self.jump() as u8) << 6
+            | (self.disc_jump() as u8) << 5
+            | self.id() << 1
+            | (self.instant() as u8)
     }
 }
 
@@ -148,7 +150,7 @@ impl Instruction {
 
     #[must_use]
     pub fn to_bin(&self) -> u16 {
-        u16::from(self.variant.to_byte()) << 8 | u16::from(self.arg.unwrap_or(0))
+        u16::from(self.arg.unwrap_or(0)) | u16::from(self.variant.to_byte()) << 8
     }
 
     /// Used by Debug and Display
