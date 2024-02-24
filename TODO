@@ -1,5 +1,4 @@
 - Discs
-- Fix Paren Error
 - Token & AST Position for errors
 - MCSchematic
 - LSP

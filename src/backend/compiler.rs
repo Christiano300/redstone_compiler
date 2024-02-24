@@ -335,10 +335,7 @@ impl Compiler {
 
                 self.put_comparison((&left, &right, operator), start_id)?;
 
-                let instructions = self.scopes.pop().unwrap().instructions;
-                self.last_scope()
-                    .instructions
-                    .push(Instr::Scope(instructions));
+                self.pop_scope();
                 let end = Self::scope_len(&self.scopes.first().instructions);
 
                 self.jump_marks.insert(end_id, end);
@@ -409,10 +406,14 @@ impl Compiler {
     }
 
     fn pop_scope(&mut self) {
-        let instructions = self.scopes.pop().unwrap().instructions;
+        let scope = self.scopes.pop().unwrap();
         self.last_scope()
             .instructions
-            .push(Instr::Scope(instructions));
+            .push(Instr::Scope(scope.instructions));
+        for i in scope.variables {
+            let (_, slot) = i;
+            self.variables[slot as usize] = false;
+        }
     }
 
     fn push_scope(&mut self, body: Vec<Expression>) -> Res {

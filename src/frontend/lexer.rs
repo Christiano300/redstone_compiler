@@ -6,6 +6,7 @@ pub enum Token {
     Identifier(String),
     Equals,
     OpenParen,
+    OpenFuncParen,
     CloseParen,
     Comma,
     Dot,
@@ -43,8 +44,8 @@ fn keyword(string: String) -> Token {
     }
 }
 
-const fn is_skippable(src: char) -> bool {
-    matches!(src, ' ' | '\n' | '\t' | '\r' | ';')
+const fn is_skippable(c: char) -> bool {
+    matches!(c, ' ' | '\n' | '\t' | '\r' | ';')
 }
 
 use Token as T;
@@ -59,15 +60,17 @@ pub fn tokenize(source_code: &str) -> Result<Vec<Token>, String> {
 
     let mut src = source_code.chars().peekable();
 
+    let Some(mut char) = src.next() else {
+        return Ok(vec![]);
+    };
+    let mut prev = ' ';
     loop {
-        let char = src.next();
-        if char.is_none() {
-            break;
-        }
-        let Some(char) = char else { unreachable!() };
-
         match char {
-            '(' => tokens.push(T::OpenParen),
+            '(' => tokens.push(if prev.is_whitespace() | is_skippable(prev) {
+                T::OpenParen
+            } else {
+                T::OpenFuncParen
+            }),
             ')' => tokens.push(T::CloseParen),
             '+' | '-' | '*' | '&' | '|' | '^' => {
                 let equals_after = matches!(src.peek(), Some('='));
@@ -144,6 +147,11 @@ pub fn tokenize(source_code: &str) -> Result<Vec<Token>, String> {
                 }
             }
         }
+        prev = char;
+        char = match src.next() {
+            Some(c) => c,
+            None => break,
+        };
     }
     tokens.push(T::Eof);
 

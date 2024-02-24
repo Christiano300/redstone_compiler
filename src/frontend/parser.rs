@@ -334,10 +334,11 @@ impl Parser {
 
         Ok(left)
     }
+
     fn parse_call_member(&mut self) -> Res {
         let member = self.parse_member()?;
 
-        if matches!(self.at()?, Token::OpenParen) {
+        if matches!(self.at()?, Token::OpenFuncParen) {
             return self.parse_call(member);
         }
         Ok(member)
@@ -346,7 +347,7 @@ impl Parser {
     fn parse_call(&mut self, caller: Expression) -> Res {
         let args = self.parse_args()?;
 
-        if matches!(self.at()?, Token::OpenParen) {
+        if matches!(self.at()?, Token::OpenFuncParen) {
             return Err("no function chaining".to_string());
         }
 
