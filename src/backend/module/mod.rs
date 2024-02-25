@@ -78,7 +78,7 @@ fn arg_parse<'a, const COUNT: usize>(
         })?;
 
     let mut iter = args.iter();
-    let res = [(); COUNT].map(|_res| iter.next().unwrap_or(&Expression::Pass));
+    let res = [(); COUNT].map(|_res| iter.next().unwrap());
     assert_eq!(res.len(), COUNT);
     Ok(res)
 }

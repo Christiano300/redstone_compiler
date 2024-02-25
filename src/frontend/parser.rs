@@ -1,6 +1,8 @@
 use std::collections::VecDeque;
 
-use super::{tokenize, EqualityOperator, Expression, Operator, Token};
+use crate::frontend::Range;
+
+use super::{tokenize, EqualityOperator, Expression, ExpressionType, Operator, Token, TokenType};
 
 #[derive(Default)]
 pub struct Parser {
@@ -38,10 +40,10 @@ impl Parser {
 
     fn eat_if<F>(&mut self, validator: F, err: &str) -> Res<Token>
     where
-        F: Fn(&Token) -> bool,
+        F: Fn(&TokenType) -> bool,
     {
         let token = self.eat()?;
-        if !validator(&token) {
+        if !validator(&token.typ) {
             return Err(err.to_string());
         }
         Ok(token)
@@ -52,50 +54,54 @@ impl Parser {
     /// # Errors
     ///
     /// when any error occurs
-    pub fn produce_ast(&mut self, source_code: &str) -> Res {
+    pub fn produce_ast(&mut self, source_code: &str) -> Res<Vec<Expression>> {
         let tokens = tokenize(source_code)?;
         self.tokens = VecDeque::from(tokens);
 
         let mut body = vec![];
 
-        while !self.tokens.is_empty() && *self.at()? != Token::Eof {
+        while !self.tokens.is_empty() && self.at()?.typ != TokenType::Eof {
             body.push(self.parse_statement()?);
         }
-        Ok(Expression::Program(body))
+        Ok(body)
     }
 
     fn parse_statement(&mut self) -> Res {
-        Ok(match self.at()? {
-            Token::Inline => self.parse_inline_declaration()?,
-            Token::If => self.parse_conditional()?,
-            Token::Pass => {
-                self.eat()?;
-                Expression::Pass
+        let current = self.at()?;
+        Ok(match current.typ {
+            TokenType::Inline => self.parse_inline_declaration()?,
+            TokenType::If => self.parse_conditional()?,
+            TokenType::Pass => {
+                let token = self.eat()?;
+                Expression {
+                    typ: ExpressionType::Pass,
+                    location: token.location,
+                }
             }
-            Token::Use => self.parse_use_statement()?,
-            Token::Var => self.parse_var_declaration()?,
-            Token::Forever => self.parse_endless()?,
-            Token::While => self.parse_while()?,
+            TokenType::Use => self.parse_use_statement()?,
+            TokenType::Var => self.parse_var_declaration()?,
+            TokenType::Forever => self.parse_endless()?,
+            TokenType::While => self.parse_while()?,
             _ => self.parse_expression()?,
         })
     }
 
     fn parse_conditional(&mut self) -> Res {
-        self.eat()?;
+        let start = self.eat()?.location;
         let (condition, body) = self.parse_conditional_branch()?;
         // self.at is now elif, else or end
         let mut paths = vec![];
 
-        while matches!(self.at()?, Token::Elif) {
+        while matches!(self.at()?.typ, TokenType::Elif) {
             self.eat()?;
             paths.push(self.parse_conditional_branch()?);
         }
 
-        let alternate = if matches!(self.at()?, Token::Else) {
+        let alternate = if matches!(self.at()?.typ, TokenType::Else) {
             Some({
                 self.eat()?;
                 let mut body = vec![];
-                while !matches!(self.at()?, Token::End) {
+                while !matches!(self.at()?.typ, TokenType::End) {
                     body.push(self.parse_statement()?);
                 }
                 if body.is_empty() {
@@ -107,19 +113,30 @@ impl Parser {
             None
         };
 
-        self.eat_if(match_fn!(Token::End), "you need to end with an end keyword")?;
-        Ok(Expression::Conditional {
-            condition: Box::new(condition),
-            body,
-            paths,
-            alternate,
+        let end = self
+            .eat_if(
+                match_fn!(TokenType::End),
+                "you need to end with an end keyword",
+            )?
+            .location;
+        Ok(Expression {
+            typ: ExpressionType::Conditional {
+                condition: Box::new(condition),
+                body,
+                paths,
+                alternate,
+            },
+            location: start + end,
         })
     }
 
     fn parse_conditional_branch(&mut self) -> Res<(Expression, Vec<Expression>)> {
         let condition = self.parse_expression()?;
         let mut body = vec![];
-        while !matches!(self.at()?, Token::Elif | Token::Else | Token::End) {
+        while !matches!(
+            self.at()?.typ,
+            TokenType::Elif | TokenType::Else | TokenType::End
+        ) {
             body.push(self.parse_statement()?);
         }
         if body.is_empty() {
@@ -129,79 +146,104 @@ impl Parser {
     }
 
     fn parse_endless(&mut self) -> Res {
-        use Token as T;
-        self.eat()?;
+        use TokenType as T;
+        let start = self.eat()?.location;
         let mut body = vec![];
-        while !matches!(self.at()?, T::End) {
+        while !matches!(self.at()?.typ, T::End) {
             body.push(self.parse_statement()?);
         }
-        self.eat()?;
+        let end = self
+            .eat_if(
+                match_fn!(TokenType::End),
+                "you need to end with an end keyword",
+            )?
+            .location;
         if body.is_empty() {
             return Err("Cannot have empty block. Use 'pass'".to_string());
         }
-        Ok(Expression::EndlessLoop { body })
+        Ok(Expression {
+            typ: ExpressionType::EndlessLoop { body },
+            location: start + end,
+        })
     }
 
     fn parse_while(&mut self) -> Res {
-        use Token as T;
-        self.eat()?;
+        use TokenType as T;
+        let start = self.eat()?.location;
         let condition = self.parse_expression()?;
         let mut body = vec![];
-        while !matches!(self.at()?, T::End) {
+        while !matches!(self.at()?.typ, T::End) {
             body.push(self.parse_statement()?);
         }
-        self.eat()?;
+        let end = self.eat_if(match_fn!(T::End), "you need to end with an end keyword")?;
         if body.is_empty() {
             return Err("Cannot have empty block. Use 'pass'".to_string());
         }
-        Ok(Expression::WhileLoop {
-            condition: Box::from(condition),
-            body,
+        Ok(Expression {
+            typ: ExpressionType::WhileLoop {
+                condition: Box::from(condition),
+                body,
+            },
+            location: start + end.location,
         })
     }
 
     fn parse_use_statement(&mut self) -> Res {
-        use Token as T;
-        self.eat()?;
-        match self.eat()? {
-            T::Identifier(symbol) => Ok(Expression::Use(symbol)),
+        use TokenType as T;
+        let start = self.eat()?.location;
+        let token = self.eat()?;
+        match token.typ {
+            T::Identifier(symbol) => Ok(Expression {
+                typ: ExpressionType::Use(symbol),
+                location: start + token.location,
+            }),
             T::Number(value) => {
                 if value == 17 {
-                    return Ok(Expression::Use(" ".to_string()));
+                    Ok(Expression {
+                        typ: ExpressionType::Use(" ".to_string()),
+                        location: start + token.location,
+                    })
+                } else {
+                    Err("Invalid module".to_string())
                 }
-                Err("Invalid module".to_string())
             }
             _ => Err("Invalid module".to_string()),
         }
     }
 
     fn parse_var_declaration(&mut self) -> Res {
-        use Token as T;
-        self.eat()?;
-        match self.eat()? {
-            T::Identifier(symbol) => Ok(Expression::VarDeclaration { symbol }),
+        use TokenType as T;
+        let start = self.eat()?.location;
+        let token = self.eat()?;
+        match token.typ {
+            T::Identifier(symbol) => Ok(Expression {
+                typ: ExpressionType::VarDeclaration { symbol },
+                location: start + token.location,
+            }),
             _ => Err("Invalid variable declaration".to_string()),
         }
     }
 
     fn parse_inline_declaration(&mut self) -> Res {
-        self.eat()?;
-        let Token::Identifier(identifier) = self.eat_if(
-            match_fn!(Token::Identifier { .. }),
-            "'inline' can only be followed by an identifier",
-        )?
-        else {
-            unreachable!()
+        let start = self.eat()?.location;
+        let token = self.eat()?;
+        let TokenType::Identifier(ident) = token.typ else {
+            return Err("'inline' must be followed by an identifier".to_string());
         };
 
         self.eat_if(
-            match_fn!(Token::Equals),
+            match_fn!(TokenType::Equals),
             "expected equals following identifier in inline declaration",
         )?;
 
-        Ok(Expression::InlineDeclaration {
-            symbol: identifier,
-            value: Box::new(self.parse_expression()?),
+        let value = self.parse_expression()?;
+        let end = value.location;
+        Ok(Expression {
+            typ: ExpressionType::InlineDeclaration {
+                symbol: ident,
+                value: Box::new(value),
+            },
+            location: start + end,
         })
     }
 
@@ -212,18 +254,19 @@ impl Parser {
     fn parse_assignment(&mut self) -> Res {
         let left = self.parse_i_assignment()?;
 
-        if matches!(self.at()?, Token::Equals) {
-            if !matches!(left, Expression::Identifier(..)) {
+        if matches!(self.at()?.typ, TokenType::Equals) {
+            let ExpressionType::Identifier(name) = left.typ else {
                 return Err("can only assign to identifiers".to_string());
-            }
-            let Expression::Identifier(name) = left else {
-                unreachable!()
             };
             self.eat()?;
             let value = self.parse_assignment()?;
-            return Ok(Expression::Assignment {
-                symbol: name,
-                value: Box::new(value),
+            let end = value.location;
+            return Ok(Expression {
+                typ: ExpressionType::Assignment {
+                    symbol: name,
+                    value: Box::new(value),
+                },
+                location: left.location + end,
             });
         }
 
@@ -231,27 +274,58 @@ impl Parser {
     }
 
     fn parse_i_assignment(&mut self) -> Res {
-        let left = self.parse_additive()?;
+        let left = self.parse_eq_expression()?;
 
-        if matches!(self.at()?, Token::IOperator(_)) {
-            if !matches!(left, Expression::Identifier(..)) {
+        if let TokenType::IOperator(operator) = self.at()?.typ {
+            let ExpressionType::Identifier(ref name) = left.typ else {
                 return Err("can only assign to identifiers".to_string());
-            }
-            let Expression::Identifier(name) = left else {
-                return Err("can only assign to identifiers".to_string());
-            };
-            let Token::IOperator(operator) = self.eat()? else {
-                unreachable!()
             };
             let value = self.parse_i_assignment()?;
-            return Ok(Expression::Assignment {
-                symbol: name.clone(),
-                value: Box::new(Expression::BinaryExpr {
-                    left: Box::new(Expression::Identifier(name)),
-                    right: Box::new(value),
-                    operator,
-                }),
+            let location = left.location + value.location;
+            return Ok(Expression {
+                typ: ExpressionType::Assignment {
+                    symbol: name.clone(),
+                    value: Box::new(Expression {
+                        typ: ExpressionType::BinaryExpr {
+                            left: Box::new(left),
+                            right: Box::new(value),
+                            operator,
+                        },
+                        location,
+                    }),
+                },
+                location,
             });
+        }
+
+        Ok(left)
+    }
+
+    fn parse_eq_expression(&mut self) -> Res {
+        let mut left = self.parse_additive()?;
+
+        let mut operator = EqualityOperator::EqualTo; // default, gets overwritten
+
+        while {
+            match self.at()?.typ {
+                TokenType::EqOperator(op) => {
+                    operator = op;
+                    true
+                }
+                _ => false,
+            }
+        } {
+            self.eat()?;
+            let right = self.parse_additive()?;
+            let location = left.location + right.location;
+            left = Expression {
+                typ: ExpressionType::EqExpr {
+                    left: Box::from(left),
+                    right: Box::from(right),
+                    operator,
+                },
+                location,
+            };
         }
 
         Ok(left)
@@ -263,20 +337,24 @@ impl Parser {
         let mut operator = Operator::Plus; // default, gets overwritten
 
         while {
-            match self.at()? {
-                Token::BinaryOperator(op) => {
-                    operator = *op;
-                    *op == Operator::Plus || *op == Operator::Minus
+            match self.at()?.typ {
+                TokenType::BinaryOperator(op) => {
+                    operator = op;
+                    op == Operator::Plus || op == Operator::Minus
                 }
                 _ => false,
             }
         } {
             self.eat()?;
             let right = self.parse_multiplicative()?;
-            left = Expression::BinaryExpr {
-                left: Box::from(left),
-                right: Box::from(right),
-                operator,
+            let location = left.location + right.location;
+            left = Expression {
+                typ: ExpressionType::BinaryExpr {
+                    left: Box::from(left),
+                    right: Box::from(right),
+                    operator,
+                },
+                location,
             };
         }
 
@@ -284,51 +362,29 @@ impl Parser {
     }
 
     fn parse_multiplicative(&mut self) -> Res {
-        let mut left = self.parse_eq_expression()?;
+        let mut left = self.parse_call_member()?;
 
         let mut operator = Operator::Plus; // default, gets overwritten
 
         while {
-            match self.at()? {
-                Token::BinaryOperator(op) => {
-                    operator = *op;
-                    *op == Operator::Mult
-                }
-                _ => false,
-            }
-        } {
-            self.eat()?;
-            let right = self.parse_eq_expression()?;
-            left = Expression::BinaryExpr {
-                left: Box::from(left),
-                right: Box::from(right),
-                operator,
-            };
-        }
-
-        Ok(left)
-    }
-
-    fn parse_eq_expression(&mut self) -> Res {
-        let mut left = self.parse_call_member()?;
-
-        let mut operator = EqualityOperator::EqualTo; // default, gets overwritten
-
-        while {
-            match self.at()? {
-                Token::EqOperator(op) => {
-                    operator = *op;
-                    true
+            match self.at()?.typ {
+                TokenType::BinaryOperator(op) => {
+                    operator = op;
+                    op == Operator::Mult
                 }
                 _ => false,
             }
         } {
             self.eat()?;
             let right = self.parse_call_member()?;
-            left = Expression::EqExpr {
-                left: Box::from(left),
-                right: Box::from(right),
-                operator,
+            let location = left.location + right.location;
+            left = Expression {
+                typ: ExpressionType::BinaryExpr {
+                    left: Box::from(left),
+                    right: Box::from(right),
+                    operator,
+                },
+                location,
             };
         }
 
@@ -338,43 +394,51 @@ impl Parser {
     fn parse_call_member(&mut self) -> Res {
         let member = self.parse_member()?;
 
-        if matches!(self.at()?, Token::OpenFuncParen) {
+        if matches!(self.at()?.typ, TokenType::OpenFuncParen) {
             return self.parse_call(member);
         }
         Ok(member)
     }
 
     fn parse_call(&mut self, caller: Expression) -> Res {
-        let args = self.parse_args()?;
+        let (args, end) = self.parse_args()?;
 
-        if matches!(self.at()?, Token::OpenFuncParen) {
+        if matches!(self.at()?.typ, TokenType::OpenFuncParen) {
             return Err("no function chaining".to_string());
         }
 
-        Ok(Expression::Call {
-            args,
-            function: Box::new(caller),
+        let location = caller.location + end;
+        Ok(Expression {
+            typ: ExpressionType::Call {
+                args,
+                function: Box::new(caller),
+            },
+            location,
         })
     }
 
-    fn parse_args(&mut self) -> Result<Vec<Expression>, String> {
-        self.eat_if(match_fn!(Token::OpenFuncParen), "Expected '('")?;
+    fn parse_args(&mut self) -> Result<(Vec<Expression>, Range), String> {
+        let start = self
+            .eat_if(match_fn!(TokenType::OpenFuncParen), "Expected '('")?
+            .location;
 
-        let args = if matches!(self.at()?, Token::CloseParen) {
+        let args = if matches!(self.at()?.typ, TokenType::CloseParen) {
             vec![]
         } else {
             self.parse_arguments_list()?
         };
 
-        self.eat_if(match_fn!(Token::CloseParen), "Missing closing_paren")?;
+        let end = self
+            .eat_if(match_fn!(TokenType::CloseParen), "Missing closing_paren")?
+            .location;
 
-        Ok(args)
+        Ok((args, start + end))
     }
 
     fn parse_arguments_list(&mut self) -> Result<Vec<Expression>, String> {
         let mut args = vec![self.parse_expression()?];
 
-        while matches!(self.at()?, Token::Comma) {
+        while matches!(self.at()?.typ, TokenType::Comma) {
             self.eat()?;
             args.push(self.parse_expression()?);
         }
@@ -384,20 +448,21 @@ impl Parser {
     fn parse_member(&mut self) -> Res {
         let mut object = self.parse_primary()?;
 
-        while matches!(self.at()?, Token::Dot) {
+        while matches!(self.at()?.typ, TokenType::Dot) {
             self.eat()?;
             let property = self.parse_primary()?;
 
-            if !matches!(property, Expression::Identifier(..)) {
+            let ExpressionType::Identifier(name) = property.typ else {
                 return Err("Cannot use dot operator on whatever you typed".to_string());
-            }
-            let Expression::Identifier(property) = property else {
-                unreachable!()
             };
 
-            object = Expression::Member {
-                object: Box::new(object),
-                property,
+            let location = object.location + property.location;
+            object = Expression {
+                typ: ExpressionType::Member {
+                    object: Box::new(object),
+                    property: name,
+                },
+                location,
             }
         }
 
@@ -407,19 +472,28 @@ impl Parser {
     fn parse_primary(&mut self) -> Res {
         let token = self.eat()?;
 
-        Ok(match token {
-            Token::Identifier(name) => Expression::Identifier(name),
-            Token::Number(value) => Expression::NumericLiteral(value),
-            Token::Debug => Expression::Debug,
-            Token::OpenParen => {
+        Ok(match token.typ {
+            TokenType::Identifier(name) => Expression {
+                typ: ExpressionType::Identifier(name),
+                location: token.location,
+            },
+            TokenType::Number(value) => Expression {
+                typ: ExpressionType::NumericLiteral(value),
+                location: token.location,
+            },
+            TokenType::Debug => Expression {
+                typ: ExpressionType::Debug,
+                location: token.location,
+            },
+            TokenType::OpenParen => {
                 let value = self.parse_expression()?;
                 self.eat_if(
-                    match_fn!(Token::CloseParen),
+                    match_fn!(TokenType::CloseParen),
                     "unexpected token (expected closing paren)",
                 )?;
                 value
             }
-            Token::Eof => return Err("Unexpected EOF while parsing".to_string()),
+            TokenType::Eof => return Err("Unexpected EOF while parsing".to_string()),
             _ => panic!(
                 "{}",
                 format!("Unexpected token found while parsing: {token:?}")

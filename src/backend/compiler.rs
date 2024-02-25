@@ -5,7 +5,7 @@ use std::{
 
 use vec1::{vec1, Vec1};
 
-use crate::frontend::{EqualityOperator, Expression, Operator};
+use crate::frontend::{EqualityOperator, Expression, ExpressionType, Operator};
 
 use super::{module::MODULES, Instruction, InstructionVariant};
 
@@ -58,8 +58,8 @@ macro_rules! instr {
 /// # Examples
 ///
 /// ```
-/// use redstone_compiler::{frontend::Expression, backend::{compile_program, Instruction, InstructionVariant}};
-/// let ast = Expression::Program(vec![Expression::NumericLiteral(5)]);
+/// use redstone_compiler::{frontend::{Expression, ExpressionType, Range, Location}, backend::{compile_program, Instruction, InstructionVariant}};
+/// let ast = vec![Expression { typ: ExpressionType::NumericLiteral(5), location: Range(Location(0, 0), Location(0, 0)) }];
 ///
 /// let compiled = compile_program(ast);
 ///
@@ -68,13 +68,9 @@ macro_rules! instr {
 ///     Ok(vec![Instruction::new(InstructionVariant::LAL, Some(5))])
 /// );
 /// ```
-pub fn compile_program(ast: Expression) -> Res<Vec<Instruction>> {
-    if let Expression::Program(body) = ast {
-        let compiler = Compiler::new();
-        compiler.generate_assembly(body)
-    } else {
-        panic!()
-    }
+pub fn compile_program(ast: Vec<Expression>) -> Res<Vec<Instruction>> {
+    let compiler = Compiler::new();
+    compiler.generate_assembly(ast)
 }
 
 #[derive(Default, Copy, Clone, Debug, PartialEq, Eq)]
@@ -275,13 +271,13 @@ impl Compiler {
     }
 
     fn eval_statement(&mut self, line: Expression) -> Res {
-        match line {
-            Expression::InlineDeclaration { symbol, value } => {
+        match line.typ {
+            ExpressionType::InlineDeclaration { symbol, value } => {
                 let value = self.eval_after_inline(&value)?;
                 self.insert_inline_var(symbol, value);
                 Ok(())
             }
-            Expression::Use(module) => {
+            ExpressionType::Use(module) => {
                 if !self.is_root_scope() {
                     return Err(Error::UseOutsideGlobalScope);
                 }
@@ -302,12 +298,12 @@ impl Compiler {
 
                 Ok(())
             }
-            Expression::VarDeclaration { symbol } => {
+            ExpressionType::VarDeclaration { symbol } => {
                 self.insert_var(symbol.as_str())?;
                 Ok(())
             }
-            Expression::Pass => Ok(()),
-            Expression::EndlessLoop { body } => {
+            ExpressionType::Pass => Ok(()),
+            ExpressionType::EndlessLoop { body } => {
                 let mark = Self::scope_len(&self.scopes.first().instructions);
                 let id = self.insert_jump_mark();
                 self.jump_marks.insert(id, mark);
@@ -320,7 +316,7 @@ impl Compiler {
 
                 Ok(())
             }
-            Expression::WhileLoop { condition, body } => {
+            ExpressionType::WhileLoop { condition, body } => {
                 let (left, right, operator) = eval_condition(*condition)?;
 
                 let start_id = self.insert_jump_mark();
@@ -343,13 +339,13 @@ impl Compiler {
 
                 Ok(())
             }
-            Expression::Conditional {
+            ExpressionType::Conditional {
                 condition,
                 body,
                 paths,
                 alternate,
             } => self.eval_conditional(*condition, body, paths, alternate)?,
-            expr => self.eval_expr(&expr),
+            _ => self.eval_expr(&line),
         }?;
         Ok(())
     }
@@ -442,9 +438,9 @@ impl Compiler {
     }
 
     fn eval_after_inline(&mut self, expr: &Expression) -> Res<i16> {
-        match expr {
-            Expression::Identifier(name) => self.get_inline_var(name),
-            Expression::BinaryExpr {
+        match &expr.typ {
+            ExpressionType::Identifier(name) => self.get_inline_var(name),
+            ExpressionType::BinaryExpr {
                 left,
                 right,
                 operator,
@@ -460,7 +456,7 @@ impl Compiler {
                     Operator::Xor => left ^ right,
                 })
             }
-            Expression::NumericLiteral(value) => Ok(*value),
+            ExpressionType::NumericLiteral(value) => Ok(*value),
             _ => Err(Error::ForbiddenInline),
         }
     }
@@ -470,18 +466,20 @@ impl Compiler {
     ///
     /// on any compiler error
     pub fn eval_expr(&mut self, expr: &Expression) -> Res {
-        match expr {
-            Expression::NumericLiteral(..) => self.put_into_a(expr)?,
-            Expression::Identifier(..) => self.put_into_a(expr)?,
-            Expression::BinaryExpr {
+        match &expr.typ {
+            ExpressionType::NumericLiteral(..) => self.put_into_a(expr)?,
+            ExpressionType::Identifier(..) => self.put_into_a(expr)?,
+            ExpressionType::BinaryExpr {
                 left,
                 right,
                 operator,
             } => self.eval_binary_expr(left, right, *operator)?,
-            Expression::Assignment { symbol, value } => self.eval_assignment(symbol, value)?,
-            Expression::Call { args, function } => self.eval_call(function, args)?,
-            Expression::EqExpr { .. } => return Err(Error::EqInNormalExpr),
-            Expression::Debug => instr!(self, LAL, 17),
+            ExpressionType::Assignment { symbol, value } => {
+                self.eval_assignment(symbol, value)?;
+            }
+            ExpressionType::Call { args, function } => self.eval_call(function, args)?,
+            ExpressionType::EqExpr { .. } => return Err(Error::EqInNormalExpr),
+            ExpressionType::Debug => instr!(self, LAL, 17),
 
             _ => todo!("unsupported expression: {:?}", expr),
         }
@@ -490,8 +488,8 @@ impl Compiler {
 
     #[must_use]
     pub const fn can_put_into_a(expr: &Expression) -> bool {
-        use Expression as E;
-        match expr {
+        use ExpressionType as E;
+        match &expr.typ {
             E::NumericLiteral(..) | E::Identifier(..) => true,
             E::Assignment { symbol: _, value } => Self::can_put_into_a(value),
             _ => false,
@@ -500,8 +498,8 @@ impl Compiler {
 
     #[must_use]
     pub const fn can_put_into_b(expr: &Expression) -> bool {
-        use Expression as E;
-        matches!(expr, E::NumericLiteral(..) | E::Identifier(..))
+        use ExpressionType as E;
+        matches!(expr.typ, E::NumericLiteral(..) | E::Identifier(..))
     }
 
     fn eval_binary_expr(
@@ -531,7 +529,7 @@ impl Compiler {
                     swapped = true;
                 } else {
                     // if we just saved a variable we use it to switch
-                    if let Expression::Assignment { symbol, value: _ } = right {
+                    if let ExpressionType::Assignment { symbol, value: _ } = &right.typ {
                         instr!(self, LB, self.get_var(symbol)?);
                     } else {
                         self.switch()?;
@@ -545,7 +543,7 @@ impl Compiler {
             }
             (false, false) => {
                 self.eval_expr(right)?;
-                if let Expression::Assignment { symbol, value: _ } = right {
+                if let ExpressionType::Assignment { symbol, value: _ } = &right.typ {
                     self.eval_expr(left)?;
                     instr!(self, LB, self.get_var(symbol)?);
                 } else {
@@ -596,10 +594,10 @@ impl Compiler {
     ///
     /// on any compiler error
     pub fn try_get_constant(&mut self, value: &Expression) -> Res<Option<i16>> {
-        Ok(match value {
-            Expression::NumericLiteral(value) => Some(*value),
-            Expression::Identifier(symbol) => self.get_inline_var(symbol).ok(),
-            Expression::BinaryExpr { .. } => match self.eval_after_inline(value) {
+        Ok(match &value.typ {
+            ExpressionType::NumericLiteral(value) => Some(*value),
+            ExpressionType::Identifier(symbol) => self.get_inline_var(symbol).ok(),
+            ExpressionType::BinaryExpr { .. } => match self.eval_after_inline(value) {
                 Ok(value) => Some(value),
                 Err(Error::ForbiddenInline | Error::NonexistentInlineVar(..)) => None,
                 Err(other) => return Err(other),
@@ -627,8 +625,8 @@ impl Compiler {
     ///
     /// if variable doesn't exist or called on a wrong expression
     pub fn put_into_a(&mut self, expr: &Expression) -> Res {
-        use Expression as E;
-        match expr {
+        use ExpressionType as E;
+        match &expr.typ {
             E::NumericLiteral(value) => {
                 self.put_a_number(*value);
             }
@@ -669,8 +667,8 @@ impl Compiler {
     ///
     /// if variable doesn't exist or called on a wrong expression
     pub fn put_into_b(&mut self, expr: &Expression) -> Res {
-        use Expression as E;
-        match expr {
+        use ExpressionType as E;
+        match &expr.typ {
             E::NumericLiteral(value) => {
                 self.put_b_number(*value);
             }
@@ -719,11 +717,11 @@ impl Compiler {
     }
 
     fn eval_call(&mut self, function: &Expression, args: &Vec<Expression>) -> Res {
-        use Expression as E;
+        use ExpressionType as E;
         let module;
         let method;
-        match function {
-            E::Member { object, property } => match object.as_ref() {
+        match &function.typ {
+            E::Member { object, property } => match &object.typ {
                 E::Identifier(symbol) => {
                     module = symbol;
                     method = property;
@@ -824,11 +822,11 @@ impl Compiler {
 fn eval_condition(
     condition: Expression,
 ) -> Res<(Box<Expression>, Box<Expression>, EqualityOperator)> {
-    let Expression::EqExpr {
+    let ExpressionType::EqExpr {
         left,
         right,
         operator,
-    } = condition
+    } = condition.typ
     else {
         return Err(Error::NormalInEqExpr);
     };

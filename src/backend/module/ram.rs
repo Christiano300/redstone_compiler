@@ -6,7 +6,7 @@ ram.copy(from, to) # also return
 
 use crate::{
     backend::compiler::{Compiler, Error, ModuleCall, RamPage},
-    frontend::Expression,
+    frontend::{Expression, ExpressionType},
     instr,
 };
 
@@ -62,7 +62,7 @@ fn ram_write(compiler: &mut Compiler, call: &ModuleCall) -> Res {
         }
         (false, false) => {
             compiler.eval_expr(value)?;
-            if let Expression::Assignment { symbol, value: _ } = value {
+            if let ExpressionType::Assignment { symbol, value: _ } = &value.typ {
                 put_address(compiler, address)?;
                 instr!(compiler, LA, compiler.get_var(symbol)?);
             } else {
@@ -101,7 +101,7 @@ fn put_address(compiler: &mut Compiler, address: &Expression) -> Res {
             // if can_put_into_b is false and
             // can_put_into_a is true is must be an assigmnent
             compiler.put_into_a(address)?;
-            if let Expression::Assignment { symbol, value: _ } = address {
+            if let ExpressionType::Assignment { symbol, value: _ } = &address.typ {
                 instr!(compiler, LB, compiler.get_var(symbol)?);
             }
         } else {

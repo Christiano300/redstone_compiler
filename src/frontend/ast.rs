@@ -1,6 +1,7 @@
+use super::Range;
+
 #[derive(Debug, Default)]
-pub enum Expression {
-    Program(Vec<Expression>),
+pub enum ExpressionType {
     InlineDeclaration {
         symbol: String,
         value: Box<Expression>,
@@ -49,6 +50,12 @@ pub enum Expression {
         function: Box<Expression>,
     },
     Debug,
+}
+
+#[derive(Debug)]
+pub struct Expression {
+    pub typ: ExpressionType,
+    pub location: Range,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]

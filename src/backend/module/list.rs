@@ -12,7 +12,7 @@ const POINTER: &str = "list_ptr";
 
 use crate::{
     backend::compiler::{Compiler, Error, ModuleCall, RamPage, RegisterContents},
-    frontend::Expression,
+    frontend::ExpressionType,
     instr,
 };
 
@@ -115,7 +115,7 @@ fn at(compiler: &mut Compiler, call: &ModuleCall) -> Res {
         compiler.put_into_b(address)?;
     } else {
         compiler.eval_expr(address)?;
-        if let Expression::Assignment { symbol, value: _ } = address {
+        if let ExpressionType::Assignment { symbol, value: _ } = &address.typ {
             instr!(compiler, LB, compiler.get_var(symbol)?);
         } else {
             compiler.switch()?;

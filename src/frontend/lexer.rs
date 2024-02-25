@@ -1,7 +1,9 @@
-use super::{eq_operator, operator, EqualityOperator as EqOp, Operator};
+use std::iter::Peekable;
+
+use super::{eq_operator, operator, EqualityOperator as EqOp, Location, Operator, Range};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Token {
+pub enum TokenType {
     Number(i16),
     Identifier(String),
     Equals,
@@ -27,20 +29,42 @@ pub enum Token {
     Eof,
 }
 
-fn keyword(string: String) -> Token {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Token {
+    pub typ: TokenType,
+    pub location: Range,
+}
+
+impl Token {
+    fn from_char(typ: TokenType, location: Location) -> Self {
+        Self {
+            typ,
+            location: Range::single_char(location),
+        }
+    }
+
+    fn with_len(typ: TokenType, location: Location, len: u16) -> Self {
+        Self {
+            typ,
+            location: Range(location, Location(location.0, location.1 + len - 1)),
+        }
+    }
+}
+
+fn keyword(string: String) -> TokenType {
     match string.as_str() {
-        "inline" => Token::Inline,
-        "if" => Token::If,
-        "elif" | "elseif" => Token::Elif,
-        "else" => Token::Else,
-        "end" => Token::End,
-        "forever" => Token::Forever,
-        "while" => Token::While,
-        "pass" => Token::Pass,
-        "use" => Token::Use,
-        "var" => Token::Var,
-        "debug" => Token::Debug,
-        _ => Token::Identifier(string),
+        "inline" => TokenType::Inline,
+        "if" => TokenType::If,
+        "elif" | "elseif" => TokenType::Elif,
+        "else" => TokenType::Else,
+        "end" => TokenType::End,
+        "forever" => TokenType::Forever,
+        "while" => TokenType::While,
+        "pass" => TokenType::Pass,
+        "use" => TokenType::Use,
+        "var" => TokenType::Var,
+        "debug" => TokenType::Debug,
+        _ => TokenType::Identifier(string),
     }
 }
 
@@ -48,7 +72,20 @@ const fn is_skippable(c: char) -> bool {
     matches!(c, ' ' | '\n' | '\t' | '\r' | ';')
 }
 
+fn next(iter: &mut impl Iterator<Item = char>, location: &mut Location) -> Option<char> {
+    let n = iter.next();
+    if let Some(char) = n {
+        match char {
+            '\n' => *location = Location(location.0 + 1, 0),
+            '\r' => {}
+            _ => location.1 += 1,
+        }
+    }
+    n
+}
+
 use Token as T;
+use TokenType as Tt;
 
 /// Transform source code into Tokens
 ///
@@ -56,56 +93,62 @@ use Token as T;
 ///
 /// This function will return an error if there is an invalid character
 pub fn tokenize(source_code: &str) -> Result<Vec<Token>, String> {
-    let mut tokens = vec![];
-
+    let mut tokens: Vec<Token> = vec![];
     let mut src = source_code.chars().peekable();
-
-    let Some(mut char) = src.next() else {
+    let mut current_location = Location(0, 0);
+    let Some(mut char) = next(&mut src, &mut current_location) else {
         return Ok(vec![]);
     };
     let mut prev = ' ';
     loop {
         match char {
             '(' => tokens.push(if prev.is_whitespace() | is_skippable(prev) {
-                T::OpenParen
+                T::from_char(Tt::OpenParen, current_location)
             } else {
-                T::OpenFuncParen
+                T::from_char(Tt::OpenFuncParen, current_location)
             }),
-            ')' => tokens.push(T::CloseParen),
+            ')' => tokens.push(T::from_char(Tt::CloseParen, current_location)),
             '+' | '-' | '*' | '&' | '|' | '^' => {
                 let equals_after = matches!(src.peek(), Some('='));
 
                 if let Some(operator) = operator(char) {
                     tokens.push(if equals_after {
-                        T::IOperator(operator)
+                        T::with_len(Tt::IOperator(operator), current_location, 2)
                     } else {
-                        T::BinaryOperator(operator)
+                        T::from_char(Tt::BinaryOperator(operator), current_location)
                     });
                 }
 
                 if equals_after {
-                    src.next();
+                    next(&mut src, &mut current_location);
                 }
             }
-            ',' => tokens.push(T::Comma),
-            '.' => tokens.push(T::Dot),
+            ',' => tokens.push(T::from_char(Tt::Comma, current_location)),
+            '.' => tokens.push(T::from_char(Tt::Dot, current_location)),
 
             '=' => match src.peek() {
                 Some('=') => {
-                    src.next();
-                    tokens.push(T::EqOperator(EqOp::EqualTo));
+                    next(&mut src, &mut current_location);
+                    tokens.push(T::from_char(
+                        Tt::EqOperator(EqOp::EqualTo),
+                        current_location,
+                    ));
                 }
-                _ => tokens.push(T::Equals),
+                _ => tokens.push(T::from_char(Tt::Equals, current_location)),
             },
             '>' | '<' | '!' => {
                 let equals_after = matches!(src.peek(), Some('='));
 
                 if let Some(token) = eq_operator(char, equals_after) {
-                    tokens.push(T::EqOperator(token));
-                    src.next();
+                    tokens.push(T::with_len(
+                        Tt::EqOperator(token),
+                        current_location,
+                        if equals_after { 2 } else { 1 },
+                    ));
+                    next(&mut src, &mut current_location);
                 }
             }
-            '#' => while src.next() != Some('\n') {},
+            '#' => while next(&mut src, &mut current_location) != Some('\n') {},
             _ => {
                 if char.is_ascii_digit() {
                     let mut num = String::new();
@@ -120,40 +163,54 @@ pub fn tokenize(source_code: &str) -> Result<Vec<Token>, String> {
                             break;
                         }
                         num.push(*n);
-                        src.next();
+                        next(&mut src, &mut current_location);
                         c = src.peek();
                     }
-                    tokens.push(T::Number(num.parse::<i16>().unwrap_or(0)));
+                    let len = num.len() as u16;
+                    tokens.push(T::with_len(
+                        Tt::Number(num.parse::<i16>().unwrap_or(0)),
+                        current_location,
+                        len,
+                    ));
                 } else if char.is_alphabetic() {
-                    let mut identifier = String::new();
-                    identifier.push(char);
-                    let mut c = src.peek();
-
-                    loop {
-                        let Some(a) = c else {
-                            break;
-                        };
-                        if !a.is_alphanumeric() && *a != '_' {
-                            break;
-                        }
-                        identifier.push(*a);
-                        src.next();
-                        c = src.peek();
-                    }
-
-                    tokens.push(keyword(identifier));
+                    parse_identifier(char, &mut src, &mut current_location, &mut tokens);
                 } else if !is_skippable(char) {
                     return Err(format!("Unrecognized Character found: {char:?}"));
                 }
             }
         }
         prev = char;
-        char = match src.next() {
+        char = match next(&mut src, &mut current_location) {
             Some(c) => c,
             None => break,
         };
     }
-    tokens.push(T::Eof);
+    tokens.push(T::from_char(Tt::Eof, current_location));
 
     Ok(tokens)
+}
+
+fn parse_identifier(
+    char: char,
+    src: &mut Peekable<std::str::Chars<'_>>,
+    current_location: &mut Location,
+    tokens: &mut Vec<Token>,
+) {
+    let mut identifier = String::new();
+    identifier.push(char);
+    let mut c = src.peek();
+
+    loop {
+        let Some(a) = c else {
+            break;
+        };
+        if !a.is_alphanumeric() && *a != '_' {
+            break;
+        }
+        identifier.push(*a);
+        next(src, current_location);
+        c = src.peek();
+    }
+    let len = identifier.len() as u16;
+    tokens.push(T::with_len(keyword(identifier), *current_location, len));
 }
