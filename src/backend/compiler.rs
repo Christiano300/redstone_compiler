@@ -1,18 +1,19 @@
 use std::{
     any::Any,
     collections::{HashMap, HashSet},
+    fmt::{Debug, Display},
 };
 
 use vec1::{vec1, Vec1};
 
-use crate::frontend::{EqualityOperator, Expression, ExpressionType, Operator};
+use crate::frontend::{EqualityOperator, Expression, ExpressionType, Operator, Range};
 
 use super::{module::MODULES, Instruction, InstructionVariant};
 
 const VAR_SLOTS: usize = 32;
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum Error {
+pub enum ErrorType {
     NonexistentVar(String),
     NonexistentInlineVar(String),
     TooManyVars,
@@ -20,11 +21,75 @@ pub enum Error {
     UnknownModule(String),
     UnknownMethod(String),
     InvalidArgs(String),
+    CompileTimeArg(String),
     SomethingElseWentWrong(String),
     ModuleInitTwice(String),
     EqInNormalExpr,
     NormalInEqExpr,
     UseOutsideGlobalScope,
+}
+
+#[derive(PartialEq, Eq)]
+pub struct Error {
+    pub typ: ErrorType,
+    pub location: Range,
+}
+
+impl Debug for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.to_string(f)
+    }
+}
+
+impl Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.to_string(f)
+    }
+}
+
+impl Error {
+    fn to_string(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!(
+            "{}",
+            match &self.typ {
+                ErrorType::NonexistentVar(name) => {
+                    format!("Varialble {name} is not defined")
+                }
+                ErrorType::NonexistentInlineVar(name) => {
+                    format!("Inline variable {name} is not defined")
+                }
+                ErrorType::TooManyVars => "There are too many variales".to_string(),
+                ErrorType::ForbiddenInline => {
+                    "This expression cannot be used in an inline expression".to_string()
+                }
+                ErrorType::UnknownModule(name) => {
+                    format!("The module {name} is either not loaded or doesn't exist")
+                }
+                ErrorType::UnknownMethod(name) => {
+                    format!("The method {name} doesn't exist")
+                }
+                ErrorType::InvalidArgs(args) => {
+                    format!("The arguments {args} are invalid")
+                }
+                ErrorType::SomethingElseWentWrong(e) => format!(
+                    "Something else has gone wrong: {e}. Please report this to the developer"
+                ),
+                ErrorType::ModuleInitTwice(name) => {
+                    format!("The module {name} was initialilzed twice")
+                }
+                ErrorType::EqInNormalExpr => {
+                    "You can't use an Equality Expression in a Normal Expression".to_string()
+                }
+                ErrorType::NormalInEqExpr => "You can't use a normal Expression here".to_string(),
+                ErrorType::UseOutsideGlobalScope =>
+                    "You can only use 'use' in the global scope".to_string(),
+                ErrorType::CompileTimeArg(name) => {
+                    format!("{name} has to be known at compile-time")
+                }
+            },
+        ))?;
+        Ok(())
+    }
 }
 
 type Res<T = ()> = Result<T, Error>;
@@ -120,6 +185,7 @@ pub struct Scope {
 pub struct ModuleCall<'a> {
     pub method_name: &'a String,
     pub args: &'a Vec<Expression>,
+    pub location: Range,
 }
 
 #[derive(Debug)]
@@ -166,17 +232,17 @@ impl Compiler {
         last_scope.inline_variables.insert(symbol, value);
     }
 
-    fn get_inline_var(&self, symbol: &String) -> Res<i16> {
+    fn get_inline_var(&self, symbol: &String, location: Range) -> Res<i16> {
         for scope in self.scopes.iter().rev() {
             let entry = scope.inline_variables.get(symbol);
             if let Some(v) = entry {
                 return Ok(*v);
             }
         }
-        Err(Error::NonexistentInlineVar(format!(
-            "Inline {:?}, {:#?}",
-            symbol, self.scopes
-        )))
+        Err(Error {
+            typ: ErrorType::NonexistentInlineVar(symbol.clone()),
+            location,
+        })
     }
 
     fn get_next_available_slot(&mut self) -> Option<u8> {
@@ -185,11 +251,14 @@ impl Compiler {
         Some(index.try_into().unwrap_or(0))
     }
 
-    fn insert_var(&mut self, symbol: &str) -> Res<u8> {
+    fn insert_var(&mut self, symbol: &str, location: Range) -> Res<u8> {
         if let Some(slot) = self.last_scope().variables.get(symbol) {
             return Ok(*slot);
         }
-        let slot = self.get_next_available_slot().ok_or(Error::TooManyVars)?;
+        let slot = self.get_next_available_slot().ok_or(Error {
+            typ: ErrorType::TooManyVars,
+            location,
+        })?;
         self.last_scope().variables.insert(symbol.to_owned(), slot);
         Ok(slot)
     }
@@ -199,17 +268,17 @@ impl Compiler {
     /// # Errors
     ///
     /// on any compiler error
-    pub fn get_var(&self, symbol: &String) -> Res<u8> {
+    pub fn get_var(&self, symbol: &String, location: Range) -> Res<u8> {
         for scope in self.scopes.iter().rev() {
             let entry = scope.variables.get(symbol);
             if let Some(v) = entry {
                 return Ok(*v);
             }
         }
-        Err(Error::NonexistentVar(format!(
-            "{:?}, {:#?}",
-            symbol, self.scopes
-        )))
+        Err(Error {
+            typ: ErrorType::NonexistentVar(symbol.clone()),
+            location,
+        })
     }
 
     /// Inserts a temporary variable
@@ -217,8 +286,11 @@ impl Compiler {
     /// # Errors
     ///
     /// When there are too many variables
-    pub fn insert_temp_var(&mut self) -> Res<u8> {
-        self.get_next_available_slot().ok_or(Error::TooManyVars)
+    pub fn insert_temp_var(&mut self, location: Range) -> Res<u8> {
+        self.get_next_available_slot().ok_or(Error {
+            typ: ErrorType::TooManyVars,
+            location,
+        })
     }
 
     pub fn cleanup_temp_var(&mut self, index: u8) {
@@ -279,18 +351,22 @@ impl Compiler {
             }
             ExpressionType::Use(module) => {
                 if !self.is_root_scope() {
-                    return Err(Error::UseOutsideGlobalScope);
+                    return Err(Error {
+                        typ: ErrorType::UseOutsideGlobalScope,
+                        location: line.location,
+                    });
                 }
                 if !MODULES.with(|modules| modules.borrow().contains_key(&module)) {
-                    return Err(Error::UnknownModule(format!(
-                        "{module}, that module doesn't exist"
-                    )));
+                    return Err(Error {
+                        typ: ErrorType::UnknownModule(module),
+                        location: line.location,
+                    });
                 }
                 MODULES.with(|modules| {
                     if let Some(ref mut init) =
                         &mut modules.borrow_mut().get_mut(&module).unwrap().init
                     {
-                        return init(self);
+                        return init(self, line.location);
                     }
                     Ok(())
                 })?;
@@ -299,7 +375,7 @@ impl Compiler {
                 Ok(())
             }
             ExpressionType::VarDeclaration { symbol } => {
-                self.insert_var(symbol.as_str())?;
+                self.insert_var(symbol.as_str(), line.location)?;
                 Ok(())
             }
             ExpressionType::Pass => Ok(()),
@@ -439,7 +515,7 @@ impl Compiler {
 
     fn eval_after_inline(&mut self, expr: &Expression) -> Res<i16> {
         match &expr.typ {
-            ExpressionType::Identifier(name) => self.get_inline_var(name),
+            ExpressionType::Identifier(name) => self.get_inline_var(name, expr.location),
             ExpressionType::BinaryExpr {
                 left,
                 right,
@@ -457,7 +533,10 @@ impl Compiler {
                 })
             }
             ExpressionType::NumericLiteral(value) => Ok(*value),
-            _ => Err(Error::ForbiddenInline),
+            _ => Err(Error {
+                typ: ErrorType::ForbiddenInline,
+                location: expr.location,
+            }),
         }
     }
 
@@ -478,7 +557,12 @@ impl Compiler {
                 self.eval_assignment(symbol, value)?;
             }
             ExpressionType::Call { args, function } => self.eval_call(function, args)?,
-            ExpressionType::EqExpr { .. } => return Err(Error::EqInNormalExpr),
+            ExpressionType::EqExpr { .. } => {
+                return Err(Error {
+                    typ: ErrorType::EqInNormalExpr,
+                    location: expr.location,
+                })
+            }
             ExpressionType::Debug => instr!(self, LAL, 17),
 
             _ => todo!("unsupported expression: {:?}", expr),
@@ -530,9 +614,9 @@ impl Compiler {
                 } else {
                     // if we just saved a variable we use it to switch
                     if let ExpressionType::Assignment { symbol, value: _ } = &right.typ {
-                        instr!(self, LB, self.get_var(symbol)?);
+                        instr!(self, LB, self.get_var(symbol, Range::default()).unwrap());
                     } else {
-                        self.switch()?;
+                        self.switch(left.location)?;
                     }
                     self.put_into_a(left)?;
                 }
@@ -545,9 +629,9 @@ impl Compiler {
                 self.eval_expr(right)?;
                 if let ExpressionType::Assignment { symbol, value: _ } = &right.typ {
                     self.eval_expr(left)?;
-                    instr!(self, LB, self.get_var(symbol)?);
+                    instr!(self, LB, self.get_var(symbol, Range::default()).unwrap());
                 } else {
-                    let temp = self.insert_temp_var()?;
+                    let temp = self.insert_temp_var(left.location)?;
                     instr!(self, SVA, temp);
                     self.eval_expr(left)?;
                     instr!(self, LB, temp);
@@ -559,7 +643,7 @@ impl Compiler {
     }
 
     fn eval_assignment(&mut self, symbol: &str, value: &Expression) -> Res {
-        let slot = self.insert_var(symbol)?;
+        let slot = self.insert_var(symbol, value.location)?;
 
         self.eval_expr(value)?;
 
@@ -596,11 +680,13 @@ impl Compiler {
     pub fn try_get_constant(&mut self, value: &Expression) -> Res<Option<i16>> {
         Ok(match &value.typ {
             ExpressionType::NumericLiteral(value) => Some(*value),
-            ExpressionType::Identifier(symbol) => self.get_inline_var(symbol).ok(),
+            ExpressionType::Identifier(symbol) => self.get_inline_var(symbol, value.location).ok(),
             ExpressionType::BinaryExpr { .. } => match self.eval_after_inline(value) {
                 Ok(value) => Some(value),
-                Err(Error::ForbiddenInline | Error::NonexistentInlineVar(..)) => None,
-                Err(other) => return Err(other),
+                Err(err) => match &err.typ {
+                    ErrorType::NonexistentInlineVar(..) | ErrorType::ForbiddenInline => None,
+                    _ => return Err(err),
+                },
             },
             _ => None,
         })
@@ -611,8 +697,8 @@ impl Compiler {
     /// # Errors
     ///
     /// if there are too many variables
-    pub fn switch(&mut self) -> Res {
-        let temp = self.insert_temp_var()?;
+    pub fn switch(&mut self, location: Range) -> Res {
+        let temp = self.insert_temp_var(location)?;
         instr!(self, SVA, temp);
         instr!(self, LB, temp);
         self.cleanup_temp_var(temp);
@@ -631,10 +717,10 @@ impl Compiler {
                 self.put_a_number(*value);
             }
             E::Identifier(symbol) => {
-                if let Ok(value) = self.get_inline_var(symbol) {
+                if let Ok(value) = self.get_inline_var(symbol, expr.location) {
                     self.put_a_number(value);
                 } else {
-                    let var = self.get_var(symbol)?;
+                    let var = self.get_var(symbol, expr.location)?;
                     if let RegisterContents::Variable(v) = self.last_scope().state.a {
                         if v == var {
                             return Ok(());
@@ -647,15 +733,19 @@ impl Compiler {
                 if Self::can_put_into_a(expr) {
                     self.eval_expr(expr)?;
                 } else {
-                    return Err(Error::SomethingElseWentWrong(
-                        "put_a called on wrong assignment, report to developer".to_string(),
-                    ));
+                    return Err(Error {
+                        typ: ErrorType::SomethingElseWentWrong("put_a".to_string()),
+                        location: expr.location,
+                    });
                 }
             }
             _ => {
-                return Err(Error::SomethingElseWentWrong(
-                    "put_a called on wrong expression".to_string(),
-                ))
+                return Err(Error {
+                    typ: ErrorType::SomethingElseWentWrong(
+                        "put_a called on wrong expression".to_string(),
+                    ),
+                    location: expr.location,
+                })
             }
         }
         Ok(())
@@ -673,10 +763,10 @@ impl Compiler {
                 self.put_b_number(*value);
             }
             E::Identifier(symbol) => {
-                if let Ok(value) = self.get_inline_var(symbol) {
+                if let Ok(value) = self.get_inline_var(symbol, expr.location) {
                     self.put_b_number(value);
                 } else {
-                    let var = self.get_var(symbol)?;
+                    let var = self.get_var(symbol, expr.location)?;
                     if let RegisterContents::Variable(v) = self.last_scope().state.b {
                         if v == var {
                             return Ok(());
@@ -686,9 +776,12 @@ impl Compiler {
                 }
             }
             _ => {
-                return Err(Error::SomethingElseWentWrong(
-                    "put_b called on wrong expression".to_string(),
-                ))
+                return Err(Error {
+                    typ: ErrorType::SomethingElseWentWrong(
+                        "put_b called on wrong expression".to_string(),
+                    ),
+                    location: expr.location,
+                })
             }
         }
         Ok(())
@@ -727,22 +820,24 @@ impl Compiler {
                     method = property;
                 }
                 _ => {
-                    return Err(Error::UnknownModule(format!(
-                        "{object:?}, you cant use that as a module"
-                    )))
+                    return Err(Error {
+                        typ: ErrorType::UnknownModule(format!("{object:?}")),
+                        location: function.location,
+                    })
                 }
             },
             _ => {
-                return Err(Error::UnknownMethod(format!(
-                    "{function:?}, you cant use that as a function"
-                )))
+                return Err(Error {
+                    typ: ErrorType::UnknownMethod(format!("{function:?}")),
+                    location: function.location,
+                })
             }
         }
         if !self.modules.contains(module) {
-            return Err(Error::UnknownModule(format!(
-                "{}, not loaded in",
-                module.clone()
-            )));
+            return Err(Error {
+                typ: ErrorType::UnknownModule(module.clone()),
+                location: function.location,
+            });
         }
 
         // don't ask
@@ -750,14 +845,16 @@ impl Compiler {
             (modules
                 .borrow_mut()
                 .get_mut(module)
-                .ok_or_else(|| {
-                    Error::UnknownModule(format!("{} not a valid module", module.clone()))
+                .ok_or_else(|| Error {
+                    typ: ErrorType::UnknownModule(module.clone()),
+                    location: function.location,
                 })?
                 .handler)(
                 self,
                 &ModuleCall {
                     method_name: method,
                     args,
+                    location: function.location,
                 },
             )?;
 
@@ -828,7 +925,10 @@ fn eval_condition(
         operator,
     } = condition.typ
     else {
-        return Err(Error::NormalInEqExpr);
+        return Err(Error {
+            typ: ErrorType::NormalInEqExpr,
+            location: condition.location,
+        });
     };
     Ok((left, right, operator))
 }

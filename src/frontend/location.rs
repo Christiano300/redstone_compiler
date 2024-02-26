@@ -21,3 +21,9 @@ impl Add for Range {
         Self(self.0.min(rhs.0), self.1.max(rhs.1))
     }
 }
+
+impl Default for Range {
+    fn default() -> Self {
+        Self(Location(0, 0), Location(0, 0))
+    }
+}

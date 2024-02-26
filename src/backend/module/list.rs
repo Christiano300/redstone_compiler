@@ -11,19 +11,22 @@ const INIT: &str = "list_init";
 const POINTER: &str = "list_ptr";
 
 use crate::{
-    backend::compiler::{Compiler, Error, ModuleCall, RamPage, RegisterContents},
-    frontend::ExpressionType,
+    backend::compiler::{Compiler, Error, ErrorType, ModuleCall, RamPage, RegisterContents},
+    frontend::{ExpressionType, Range},
     instr,
 };
 
 use super::{arg_parse, Arg, Res};
 
-pub fn init(compiler: &mut Compiler) -> Res {
+pub fn init(compiler: &mut Compiler, location: Range) -> Res {
     if is_initialized(compiler) {
-        return Err(Error::ModuleInitTwice("list".to_string()));
+        return Err(Error {
+            typ: ErrorType::ModuleInitTwice("list".to_string()),
+            location,
+        });
     }
 
-    let slot: u8 = find_pointer_var_slot(&compiler.variables)?
+    let slot: u8 = find_pointer_var_slot(&compiler.variables, location)?
         .try_into()
         .unwrap();
     compiler.module_state.insert(POINTER, Box::from(slot));
@@ -39,12 +42,15 @@ pub fn module(compiler: &mut Compiler, call: &ModuleCall) -> Res {
         "set_pointer" => set_pointer(compiler, call),
         "last" => last(compiler, call),
         "at" => at(compiler, call),
-        _ => Err(Error::UnknownMethod(call.method_name.clone())),
+        _ => Err(Error {
+            typ: ErrorType::UnknownMethod(call.method_name.clone()),
+            location: call.location,
+        }),
     }
 }
 
 fn add(compiler: &mut Compiler, call: &ModuleCall) -> Res {
-    let value = arg_parse(compiler, [Arg::Number("value")], call.args)?[0];
+    let value = arg_parse(compiler, [Arg::Number("value")], call.args, call.location)?[0];
     let pointer = *compiler.get_module_state::<u8>(POINTER).unwrap();
     compiler.eval_expr(value)?;
     if compiler.last_scope().state.b != RegisterContents::Variable(pointer) {
@@ -59,7 +65,7 @@ fn add(compiler: &mut Compiler, call: &ModuleCall) -> Res {
 }
 
 fn pop(compiler: &mut Compiler, call: &ModuleCall) -> Res {
-    arg_parse(compiler, [], call.args)?;
+    arg_parse(compiler, [], call.args, call.location)?;
 
     let pointer = *compiler.get_module_state::<u8>(POINTER).unwrap();
 
@@ -76,14 +82,14 @@ fn pop(compiler: &mut Compiler, call: &ModuleCall) -> Res {
 }
 
 fn get_pointer(compiler: &mut Compiler, call: &ModuleCall) -> Res {
-    arg_parse(compiler, [], call.args)?;
+    arg_parse(compiler, [], call.args, call.location)?;
     let pointer = *compiler.get_module_state(POINTER).unwrap();
     instr!(compiler, LA, pointer);
     Ok(())
 }
 
 fn set_pointer(compiler: &mut Compiler, call: &ModuleCall) -> Res {
-    let value = arg_parse(compiler, [Arg::Number("value")], call.args)?[0];
+    let value = arg_parse(compiler, [Arg::Number("value")], call.args, call.location)?[0];
 
     let pointer = *compiler.get_module_state(POINTER).unwrap();
     compiler.eval_expr(value)?;
@@ -93,7 +99,7 @@ fn set_pointer(compiler: &mut Compiler, call: &ModuleCall) -> Res {
 }
 
 fn last(compiler: &mut Compiler, call: &ModuleCall) -> Res {
-    arg_parse(compiler, [], call.args)?;
+    arg_parse(compiler, [], call.args, call.location)?;
 
     let pointer = *compiler.get_module_state(POINTER).unwrap();
 
@@ -109,16 +115,16 @@ fn last(compiler: &mut Compiler, call: &ModuleCall) -> Res {
 }
 
 fn at(compiler: &mut Compiler, call: &ModuleCall) -> Res {
-    let address = arg_parse(compiler, [Arg::Number("address")], call.args)?[0];
-
+    let address = arg_parse(compiler, [Arg::Number("address")], call.args, call.location)?[0];
+    let location = call.args.first().unwrap().location;
     if Compiler::can_put_into_b(address) {
         compiler.put_into_b(address)?;
     } else {
         compiler.eval_expr(address)?;
         if let ExpressionType::Assignment { symbol, value: _ } = &address.typ {
-            instr!(compiler, LB, compiler.get_var(symbol)?);
+            instr!(compiler, LB, compiler.get_var(symbol, location)?);
         } else {
-            compiler.switch()?;
+            compiler.switch(location)?;
         }
     }
 
@@ -138,10 +144,9 @@ fn is_initialized(compiler: &mut Compiler) -> bool {
     matches!(compiler.get_module_state(INIT), Some(true))
 }
 
-fn find_pointer_var_slot(slots: &[bool; 32]) -> Res<usize> {
-    slots
-        .iter()
-        .rev()
-        .position(|slot| !*slot)
-        .ok_or(Error::TooManyVars)
+fn find_pointer_var_slot(slots: &[bool; 32], location: Range) -> Res<usize> {
+    slots.iter().rev().position(|slot| !*slot).ok_or(Error {
+        typ: ErrorType::TooManyVars,
+        location,
+    })
 }

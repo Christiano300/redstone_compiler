@@ -18,13 +18,16 @@ thread_local! {
     })
 }
 
-use crate::frontend::Expression;
+use crate::{
+    backend::compiler::ErrorType,
+    frontend::{Expression, Range},
+};
 
 use super::{Compiler, Error, ModuleCall};
 
 pub type Handler = dyn FnMut(&mut Compiler, &ModuleCall) -> Res;
 
-pub type Init = dyn FnMut(&mut Compiler) -> Res;
+pub type Init = dyn FnMut(&mut Compiler, Range) -> Res;
 
 pub struct Module {
     pub name: String,
@@ -59,9 +62,13 @@ fn arg_parse<'a, const COUNT: usize>(
     compiler: &mut Compiler,
     types: [Arg; COUNT],
     args: &'a [Expression],
+    location: Range,
 ) -> Res<[&'a Expression; COUNT]> {
     if types.len() != args.len() {
-        return Err(Error::InvalidArgs("Wrong number of Arguments".to_string()));
+        return Err(Error {
+            typ: ErrorType::InvalidArgs("Wrong number of Arguments".to_string()),
+            location,
+        });
     }
     types
         .into_iter()
@@ -69,9 +76,10 @@ fn arg_parse<'a, const COUNT: usize>(
         .try_for_each(|(typ, arg)| match typ {
             Arg::Constant(name) => match compiler.try_get_constant(arg) {
                 Ok(Some(_)) => Ok(()), // if we can get the value at compile-time, its ok
-                Ok(None) => Err(Error::InvalidArgs(format!(
-                    "{name} has to be known at compile-time"
-                ))), // otherwise we error
+                Ok(None) => Err(Error {
+                    typ: ErrorType::CompileTimeArg(name.to_string()),
+                    location: arg.location,
+                }), // otherwise we error
                 err => err.map(|_res| ()), // return any other error
             },
             Arg::Number(..) => Ok(()),
