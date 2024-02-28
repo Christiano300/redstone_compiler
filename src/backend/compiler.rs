@@ -182,6 +182,15 @@ pub struct Scope {
     instructions: Vec<Instr>,
 }
 
+impl Scope {
+    fn with_state(state: ComputerState) -> Self {
+        Self {
+            state,
+            ..Self::default()
+        }
+    }
+}
+
 pub struct ModuleCall<'a> {
     pub method_name: &'a String,
     pub args: &'a Vec<Expression>,
@@ -228,7 +237,7 @@ impl Compiler {
     }
 
     fn insert_inline_var(&mut self, symbol: String, value: i16) {
-        let last_scope = self.last_scope();
+        let last_scope = self.last_scope_mut();
         last_scope.inline_variables.insert(symbol, value);
     }
 
@@ -252,14 +261,19 @@ impl Compiler {
     }
 
     fn insert_var(&mut self, symbol: &str, location: Range) -> Res<u8> {
-        if let Some(slot) = self.last_scope().variables.get(symbol) {
-            return Ok(*slot);
+        for scope in self.scopes.iter().rev() {
+            let entry = scope.variables.get(symbol);
+            if let Some(v) = entry {
+                return Ok(*v);
+            }
         }
         let slot = self.get_next_available_slot().ok_or(Error {
             typ: ErrorType::TooManyVars,
             location,
         })?;
-        self.last_scope().variables.insert(symbol.to_owned(), slot);
+        self.last_scope_mut()
+            .variables
+            .insert(symbol.to_owned(), slot);
         Ok(slot)
     }
 
@@ -269,16 +283,26 @@ impl Compiler {
     ///
     /// on any compiler error
     pub fn get_var(&self, symbol: &String, location: Range) -> Res<u8> {
+        self.get_var_noerror(symbol).map_or_else(
+            || {
+                Err(Error {
+                    typ: ErrorType::NonexistentVar(symbol.clone()),
+                    location,
+                })
+            },
+            Ok,
+        )
+    }
+
+    #[must_use]
+    pub fn get_var_noerror(&self, symbol: &String) -> Option<u8> {
         for scope in self.scopes.iter().rev() {
             let entry = scope.variables.get(symbol);
             if let Some(v) = entry {
-                return Ok(*v);
+                return Some(*v);
             }
         }
-        Err(Error {
-            typ: ErrorType::NonexistentVar(symbol.clone()),
-            location,
-        })
+        None
     }
 
     /// Inserts a temporary variable
@@ -299,7 +323,7 @@ impl Compiler {
 
     /// use the "instr" macro
     pub fn push_instr(&mut self, instr: Instruction) {
-        let last_scope = self.last_scope();
+        let last_scope = self.last_scope_mut();
         instr.execute(&mut last_scope.state);
         last_scope.instructions.push(Instr::Code(instr));
     }
@@ -321,7 +345,12 @@ impl Compiler {
         });
     }
 
-    pub fn last_scope(&mut self) -> &mut Scope {
+    #[must_use]
+    pub fn last_scope(&self) -> &Scope {
+        self.scopes.last()
+    }
+
+    pub fn last_scope_mut(&mut self) -> &mut Scope {
         self.scopes.last_mut()
     }
 
@@ -383,9 +412,8 @@ impl Compiler {
                 let mark = Self::scope_len(&self.scopes.first().instructions);
                 let id = self.insert_jump_mark();
                 self.jump_marks.insert(id, mark);
-                self.scopes.push(Scope::default());
-                body.into_iter()
-                    .try_for_each(|line| self.eval_statement(line))?;
+
+                self.push_scope(body, ComputerState::default())?;
                 self.pop_scope();
 
                 instr!(self, JMP, id);
@@ -404,7 +432,7 @@ impl Compiler {
 
                 self.jump_marks.insert(start_id, start);
 
-                self.push_scope(body)?;
+                self.push_scope(body, self.last_scope().state)?;
 
                 self.put_comparison((&left, &right, operator), start_id)?;
 
@@ -436,8 +464,12 @@ impl Compiler {
         let (left, right, operator) = eval_condition(condition)?;
         let end_id = self.insert_jump_mark();
         let mut next_mark_id = self.insert_jump_mark();
+
         self.put_comparison((&left, &right, operator.opposite()), next_mark_id)?;
-        self.push_scope(body)?;
+
+        let mut last_state = self.last_scope().state;
+
+        self.push_scope(body, last_state)?;
         if !paths.is_empty() || alternate.is_some() {
             instr!(self, JMP, end_id);
         }
@@ -455,7 +487,9 @@ impl Compiler {
 
             self.put_comparison((&left, &right, operator.opposite()), next_mark_id)?;
 
-            self.push_scope(body)?;
+            last_state = self.last_scope().state;
+
+            self.push_scope(body, last_state)?;
 
             if index != path_len - 1 || alternate.is_some() {
                 instr!(self, JMP, end_id);
@@ -470,7 +504,7 @@ impl Compiler {
             Ok(())
         })?;
         if let Some(body) = alternate {
-            self.push_scope(body)?;
+            self.push_scope(body, last_state)?;
             self.pop_scope();
         }
         self.jump_marks
@@ -480,7 +514,7 @@ impl Compiler {
 
     fn pop_scope(&mut self) {
         let scope = self.scopes.pop().unwrap();
-        self.last_scope()
+        self.last_scope_mut()
             .instructions
             .push(Instr::Scope(scope.instructions));
         for i in scope.variables {
@@ -489,8 +523,8 @@ impl Compiler {
         }
     }
 
-    fn push_scope(&mut self, body: Vec<Expression>) -> Res {
-        self.scopes.push(Scope::default());
+    fn push_scope(&mut self, body: Vec<Expression>, state: ComputerState) -> Res {
+        self.scopes.push(Scope::with_state(state));
         body.into_iter()
             .try_for_each(|line| self.eval_statement(line))?;
         Ok(())
@@ -502,10 +536,11 @@ impl Compiler {
         jump_to: u8,
     ) -> Res {
         let (left, right, operator) = condition;
-        let mut op = operator;
-        if self.put_ab(left, right, true)? {
-            op = op.turnaround();
-        }
+        let op = if self.put_ab(left, right, true)? {
+            operator.turnaround()
+        } else {
+            operator
+        };
         self.push_instr(Instruction::new(
             InstructionVariant::from_op(op),
             Some(jump_to),
@@ -604,7 +639,17 @@ impl Compiler {
         let mut swapped = false;
         match (Self::can_put_into_a(left), Self::can_put_into_b(right)) {
             (true, true) => {
-                self.eval_simple_expr(left, right)?;
+                if is_commutative
+                    && ((self.is_in_a(right) || self.is_in_b(left))
+                        || (matches!(right.typ, ExpressionType::Identifier(..))
+                            && matches!(left.typ, ExpressionType::NumericLiteral(..))))
+                {
+                    self.put_into_a(right)?;
+                    self.put_into_b(left)?;
+                    return Ok(true);
+                }
+                self.put_into_a(left)?;
+                self.put_into_b(right)?;
             }
             (true, false) => {
                 self.eval_expr(right)?;
@@ -648,14 +693,6 @@ impl Compiler {
         self.eval_expr(value)?;
 
         instr!(self, SVA, slot);
-
-        Ok(())
-    }
-
-    fn eval_simple_expr(&mut self, left: &Expression, right: &Expression) -> Res {
-        self.put_into_a(left)?;
-
-        self.put_into_b(right)?;
 
         Ok(())
     }
@@ -785,6 +822,38 @@ impl Compiler {
             }
         }
         Ok(())
+    }
+
+    fn is_in_a(&mut self, expr: &Expression) -> bool {
+        use ExpressionType as E;
+        match &expr.typ {
+            E::NumericLiteral(value) => {
+                self.last_scope().state.a == RegisterContents::Number(*value)
+            }
+            E::Identifier(symbol) => {
+                RegisterContents::Variable(match self.get_var_noerror(symbol) {
+                    Some(v) => v,
+                    None => return false,
+                }) == self.last_scope().state.a
+            }
+            _ => false,
+        }
+    }
+
+    fn is_in_b(&mut self, expr: &Expression) -> bool {
+        use ExpressionType as E;
+        match &expr.typ {
+            E::NumericLiteral(value) => {
+                self.last_scope().state.b == RegisterContents::Number(*value)
+            }
+            E::Identifier(symbol) => {
+                RegisterContents::Variable(match self.get_var_noerror(symbol) {
+                    Some(v) => v,
+                    None => return false,
+                }) == self.last_scope().state.b
+            }
+            _ => false,
+        }
     }
 
     pub fn put_a_number(&mut self, value: i16) {

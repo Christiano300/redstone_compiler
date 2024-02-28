@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 
 use crate::frontend::Range;
 
-use super::{tokenize, EqualityOperator, Expression, ExpressionType, Operator, Token, TokenType};
+use super::{EqualityOperator, Expression, ExpressionType, Operator, Token, TokenType};
 
 #[derive(Default)]
 pub struct Parser {
@@ -54,8 +54,7 @@ impl Parser {
     /// # Errors
     ///
     /// when any error occurs
-    pub fn produce_ast(&mut self, source_code: &str) -> Res<Vec<Expression>> {
-        let tokens = tokenize(source_code)?;
+    pub fn produce_ast(&mut self, tokens: Vec<Token>) -> Res<Vec<Expression>> {
         self.tokens = VecDeque::from(tokens);
 
         let mut body = vec![];
@@ -280,6 +279,7 @@ impl Parser {
             let ExpressionType::Identifier(ref name) = left.typ else {
                 return Err("can only assign to identifiers".to_string());
             };
+            self.eat()?;
             let value = self.parse_i_assignment()?;
             let location = left.location + value.location;
             return Ok(Expression {

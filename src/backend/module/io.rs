@@ -28,7 +28,6 @@ fn read(compiler: &mut Compiler, call: &ModuleCall) -> Res {
         call.location,
     )?;
 
-    #[allow(clippy::unwrap_used)]
     let slot = compiler.try_get_constant(args[0])?.unwrap();
     if !(0..8).contains(&slot) {
         return Err(Error {
@@ -52,7 +51,6 @@ fn write(compiler: &mut Compiler, call: &ModuleCall) -> Res {
         call.location,
     )?;
 
-    #[allow(clippy::unwrap_used)]
     let slot = compiler.try_get_constant(args[1])?.unwrap();
     if !(0..8).contains(&slot) {
         return Err(Error {
