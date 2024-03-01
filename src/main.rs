@@ -70,7 +70,7 @@ fn main() -> io::Result<()> {
         }
     };
     if debug {
-        println!("{ast:?}");
+        println!("{ast:#?}");
     }
 
     let assembly = match compile_program(ast) {
@@ -92,7 +92,7 @@ fn main() -> io::Result<()> {
     let mut bin_string = String::new();
     assembly
         .iter()
-        .map(|instr| format!("{:b}", instr.to_bin()))
+        .map(|instr| format!("{:016b}\n", instr.to_bin()))
         .for_each(|line| bin_string.push_str(line.as_str()));
 
     fs::write(format!("{dir}/{program}.bin"), bin_string)?;
