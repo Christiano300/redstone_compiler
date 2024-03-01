@@ -53,8 +53,8 @@ mod lexer_tests {
 
     #[test]
     fn numbers() {
-        let code = "0 1 3 -17";
-        let expected: Vec<_> = [0, 1, 3, -17]
+        let code = "0  1  3  -17  0b1011 0xffff -0b101";
+        let expected: Vec<_> = [0, 1, 3, -17, 11, -1, -5]
             .into_iter()
             .map(TokenType::Number)
             .chain(once(TokenType::Eof))

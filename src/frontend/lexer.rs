@@ -133,7 +133,7 @@ pub fn tokenize(source_code: &str) -> Result<Vec<Token>, String> {
                     }
                     '0'..='9' => {
                         let start = current_location;
-                        let num = read_num(char, &mut src, &mut current_location);
+                        let num = -read_num(next(&mut src, &mut current_location).ok_or("Unexpected end")?, &mut src, &mut current_location)?;
                         T {
                             typ: Tt::Number(num),
                             location: Range(start, current_location),
@@ -172,13 +172,13 @@ pub fn tokenize(source_code: &str) -> Result<Vec<Token>, String> {
             _ => {
                 if char.is_ascii_digit() {
                     let start = current_location;
-                    let num = read_num(char, &mut src, &mut current_location);
+                    let num = read_num(char, &mut src, &mut current_location)?;
                     tokens.push(T {
                         typ: Tt::Number(num),
                         location: Range(start, current_location),
                     });
                 } else if char.is_alphabetic() {
-                    parse_identifier(char, &mut src, &mut current_location, &mut tokens);
+                    read_identifier(char, &mut src, &mut current_location, &mut tokens);
                 } else if !is_skippable(char) {
                     return Err(format!("Unrecognized Character found: {char:?}"));
                 }
@@ -196,13 +196,22 @@ pub fn tokenize(source_code: &str) -> Result<Vec<Token>, String> {
 }
 
 fn read_num(
-    char: char,
+    first: char,
     src: &mut Peekable<std::str::Chars<'_>>,
     current_location: &mut Location,
-) -> i16 {
-    let mut num = String::new();
-    num.push(char);
+) -> Result<i16, String> {
     let mut c = src.peek();
+
+    if first == '0' {
+        match c {
+            Some('b') => return read_n_num(src, current_location, 2),
+            Some('x') => return read_n_num(src, current_location, 16),
+            _ => {}
+        }
+    }
+
+    let mut num = String::new();
+    num.push(first);
 
     loop {
         let Some(n) = c else {
@@ -215,10 +224,10 @@ fn read_num(
         next(src, current_location);
         c = src.peek();
     }
-    num.parse().unwrap()
+    Ok(num.parse().unwrap())
 }
 
-fn parse_identifier(
+fn read_identifier(
     char: char,
     src: &mut Peekable<std::str::Chars<'_>>,
     current_location: &mut Location,
@@ -242,4 +251,30 @@ fn parse_identifier(
     }
     let len = identifier.len() as u16;
     tokens.push(T::with_len(keyword(identifier), start, len));
+}
+
+fn read_n_num(
+    src: &mut Peekable<std::str::Chars<'_>>,
+    current_location: &mut Location,
+    radix: u32,
+) -> Result<i16, String> {
+    next(src, current_location);
+    let mut c = src.peek();
+    let mut num = String::new();
+
+    loop {
+        let Some(n) = c else {
+            break;
+        };
+        if !n.is_ascii_hexdigit() {
+            break;
+        }
+        num.push(*n);
+        next(src, current_location);
+        c = src.peek();
+    }
+    u16::from_str_radix(num.as_str(), radix).map_or_else(
+        |_| Err(format!("Invalid hex number at {current_location:?}")),
+        |u| Ok(u as i16),
+    )
 }
