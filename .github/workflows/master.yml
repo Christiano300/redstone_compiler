@@ -1,4 +1,4 @@
-name: Rust
+name: Verify Merge Request
 
 on:
   push:
@@ -16,7 +16,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
-    - name: Build
+    - name: Build & Lint
       run: cargo clippy --verbose
     - name: Run tests
       run: cargo test --verbose

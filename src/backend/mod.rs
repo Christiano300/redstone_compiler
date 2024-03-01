@@ -1,9 +1,12 @@
 pub mod compiler;
+mod error;
 pub mod instruction;
 mod module;
+mod types;
 
-#[allow(unused)]
 pub use compiler::compile_program;
 pub use instruction::{Instruction, InstructionVariant};
 
-use compiler::{Compiler, ComputerState, Error, ModuleCall};
+use compiler::Compiler;
+use error::{Error, Type as ErrorType};
+use types::{ComputerState, Instr, RamPage, RegisterContents, Scope};

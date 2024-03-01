@@ -1,10 +1,10 @@
 use crate::{
-    backend::compiler::{Compiler, Error, ModuleCall},
-    frontend::Expression,
+    backend::compiler::Compiler,
+    frontend::{Expression, Range},
     instr,
 };
 
-use super::{arg_parse, Arg, Res};
+use super::{arg_parse, Arg, Call, Error, ErrorType, Res};
 
 /*
 Screen:
@@ -21,7 +21,7 @@ const BASE_OUT_REG: u8 = 32;
 const SCREENOP_REG: u8 = BASE_OUT_REG + 6;
 const SCREENPOS_REG: u8 = BASE_OUT_REG + 7;
 
-pub fn module(compiler: &mut Compiler, call: &ModuleCall) -> Res {
+pub fn module(compiler: &mut Compiler, call: &Call) -> Res {
     match call.method_name.as_str() {
         "flip" => screen_operation(compiler, call, 1),
         "clear" => screen_operation(compiler, call, 2),
@@ -31,26 +31,34 @@ pub fn module(compiler: &mut Compiler, call: &ModuleCall) -> Res {
         "set" => whole_pixel_operation(compiler, call, 4),
         "invert" => whole_pixel_operation(compiler, call, 8),
         "off" => whole_pixel_operation(compiler, call, 16),
-        _ => Err(Error::UnknownMethod(call.method_name.clone())),
+        _ => Err(Error {
+            typ: ErrorType::UnknownMethod(call.method_name.clone()),
+            location: call.location,
+        }),
     }
 }
 
-fn pixel_operation(compiler: &mut Compiler, call: &ModuleCall, op: u8) -> Res {
-    let args = arg_parse(compiler, [Arg::Number("x"), Arg::Number("y")], call.args)?;
+fn pixel_operation(compiler: &mut Compiler, call: &Call, op: u8) -> Res {
+    let args = arg_parse(
+        compiler,
+        [Arg::Number("x"), Arg::Number("y")],
+        call.args,
+        call.location,
+    )?;
 
-    write_screenpos(compiler, args[0], args[1])?;
+    write_screenpos(compiler, args[0], args[1], call.location)?;
     write_screenop(compiler, op);
     Ok(())
 }
 
-fn screen_operation(compiler: &mut Compiler, call: &ModuleCall, op: u8) -> Res {
-    let _ = arg_parse(compiler, [], call.args)?;
+fn screen_operation(compiler: &mut Compiler, call: &Call, op: u8) -> Res {
+    let _ = arg_parse(compiler, [], call.args, call.location)?;
     write_screenop(compiler, op);
     Ok(())
 }
 
-fn whole_pixel_operation(compiler: &mut Compiler, call: &ModuleCall, op: u8) -> Res {
-    let args = arg_parse(compiler, [Arg::Number("pos")], call.args)?;
+fn whole_pixel_operation(compiler: &mut Compiler, call: &Call, op: u8) -> Res {
+    let args = arg_parse(compiler, [Arg::Number("pos")], call.args, call.location)?;
 
     compiler.eval_expr(args[0])?;
     instr!(compiler, SVA, SCREENPOS_REG);
@@ -59,7 +67,12 @@ fn whole_pixel_operation(compiler: &mut Compiler, call: &ModuleCall, op: u8) -> 
     Ok(())
 }
 
-fn write_screenpos(compiler: &mut Compiler, x: &Expression, y: &Expression) -> Res {
+fn write_screenpos(
+    compiler: &mut Compiler,
+    x: &Expression,
+    y: &Expression,
+    location: Range,
+) -> Res {
     match (compiler.try_get_constant(x)?, compiler.try_get_constant(y)?) {
         (Some(x), Some(y)) => {
             compiler.put_a_number(x << 8 | y);
@@ -84,7 +97,7 @@ fn write_screenpos(compiler: &mut Compiler, x: &Expression, y: &Expression) -> R
                 compiler.eval_expr(x)?;
                 instr!(compiler, SUP, 8);
             } else {
-                let temp = compiler.insert_temp_var()?;
+                let temp = compiler.insert_temp_var(location)?;
                 instr!(compiler, SVA, temp);
                 compiler.eval_expr(x)?;
                 instr!(compiler, SUP, 8);

@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 table_enum = "0.2.0"
 vec1 = "1.10.1"
+colored = "2.1.0"
 
 [lints.rust]
 unsafe_code = "forbid"
@@ -18,3 +19,4 @@ pedantic = "deny"
 nursery = "deny"
 cast_possible_truncation = "allow"
 cast_sign_loss = "allow"
+cast_possible_wrap = "allow"

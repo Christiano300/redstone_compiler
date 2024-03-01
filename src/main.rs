@@ -5,13 +5,24 @@ use std::{
     io::{self, Read, Write},
 };
 
-use redstone_compiler::frontend::Parser;
+use redstone_compiler::frontend::{tokenize, Parser};
 
 use redstone_compiler::backend::compile_program;
+
+fn has_arg(args: &mut VecDeque<String>, arg: &'static str) -> bool {
+    if args.contains(&arg.to_string()) {
+        args.retain(|a| a != arg);
+        true
+    } else {
+        false
+    }
+}
 
 fn main() -> io::Result<()> {
     let mut args: VecDeque<_> = env::args().collect();
     args.pop_front();
+
+    let debug = has_arg(&mut args, "--dbg");
 
     let program = match args.pop_front() {
         None => input("Enter program or leave empty for repl: ")?,
@@ -39,19 +50,33 @@ fn main() -> io::Result<()> {
     let mut code = String::new();
     file.read_to_string(&mut code)?;
 
+    let tokens = match tokenize(code.as_str()) {
+        Ok(tokens) => tokens,
+        Err(err) => {
+            println!("{err:#?}");
+            return Ok(());
+        }
+    };
+    if debug {
+        println!("{tokens:#?}");
+    }
+
     let mut parser = Parser::new();
-    let ast = match parser.produce_ast(code.as_str()) {
+    let ast = match parser.produce_ast(tokens) {
         Ok(ast) => ast,
         Err(err) => {
             println!("{err:#?}");
             return Ok(());
         }
     };
+    if debug {
+        println!("{ast:#?}");
+    }
 
     let assembly = match compile_program(ast) {
         Ok(assembly) => assembly,
         Err(err) => {
-            println!("{err:#?}");
+            err.pretty_print(code.as_str(), path.as_str());
             return Ok(());
         }
     };
@@ -67,7 +92,7 @@ fn main() -> io::Result<()> {
     let mut bin_string = String::new();
     assembly
         .iter()
-        .map(|instr| format!("{:b}", instr.to_bin()))
+        .map(|instr| format!("{:016b}\n", instr.to_bin()))
         .for_each(|line| bin_string.push_str(line.as_str()));
 
     fs::write(format!("{dir}/{program}.bin"), bin_string)?;
@@ -92,7 +117,13 @@ fn repl() -> io::Result<()> {
             return io::Result::Ok(());
         }
 
-        let parser_result = parser.produce_ast(line.as_str());
+        let tokens = tokenize(line.as_str());
+        let Ok(tokens) = tokens else {
+            println!("{tokens:#?}");
+            continue;
+        };
+
+        let parser_result = parser.produce_ast(tokens);
 
         let Ok(ast) = parser_result else {
             println!("{parser_result:#?}");
