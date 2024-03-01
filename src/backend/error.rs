@@ -69,7 +69,7 @@ impl Error {
         println!("{line}");
         print!("{} {} ", " ".repeat(len), "|".bright_blue());
         println!(
-            "{}{}",
+            "{}{}\n",
             " ".repeat(self.location.0 .1 as usize - 1),
             "^".repeat((self.location.1 .1 - self.location.0 .1) as usize + 1)
                 .bright_red()

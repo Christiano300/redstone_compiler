@@ -108,7 +108,7 @@ pub fn tokenize(source_code: &str) -> Result<Vec<Token>, String> {
                 T::from_char(Tt::OpenFuncParen, current_location)
             }),
             ')' => tokens.push(T::from_char(Tt::CloseParen, current_location)),
-            '+' | '-' | '*' | '&' | '|' | '^' => {
+            '+' | '*' | '&' | '|' | '^' => {
                 let equals_after = matches!(src.peek(), Some('='));
 
                 if let Some(operator) = operator(char) {
@@ -123,6 +123,25 @@ pub fn tokenize(source_code: &str) -> Result<Vec<Token>, String> {
                     next(&mut src, &mut current_location);
                 }
             }
+            '-' => tokens.push(match src.peek() {
+                None => T::from_char(Tt::BinaryOperator(Operator::Minus), current_location),
+                Some(c) => match c {
+                    '=' => {
+                        let t = T::with_len(Tt::IOperator(Operator::Minus), current_location, 2);
+                        next(&mut src, &mut current_location);
+                        t
+                    }
+                    '0'..='9' => {
+                        let start = current_location;
+                        let num = read_num(char, &mut src, &mut current_location);
+                        T {
+                            typ: Tt::Number(num),
+                            location: Range(start, current_location),
+                        }
+                    }
+                    _ => T::from_char(Tt::BinaryOperator(Operator::Minus), current_location),
+                },
+            }),
             ',' => tokens.push(T::from_char(Tt::Comma, current_location)),
             '.' => tokens.push(T::from_char(Tt::Dot, current_location)),
 
@@ -152,27 +171,12 @@ pub fn tokenize(source_code: &str) -> Result<Vec<Token>, String> {
             '\t' => return Err(format!("Please indent using spaces, tabs break the errors, found tab at {current_location:?}")),
             _ => {
                 if char.is_ascii_digit() {
-                    let mut num = String::new();
-                    num.push(char);
-                    let mut c = src.peek();
-
-                    loop {
-                        let Some(n) = c else {
-                            break;
-                        };
-                        if !n.is_ascii_digit() {
-                            break;
-                        }
-                        num.push(*n);
-                        next(&mut src, &mut current_location);
-                        c = src.peek();
-                    }
-                    let len = num.len() as u16;
-                    tokens.push(T::with_len(
-                        Tt::Number(num.parse::<i16>().unwrap_or(0)),
-                        current_location,
-                        len,
-                    ));
+                    let start = current_location;
+                    let num = read_num(char, &mut src, &mut current_location);
+                    tokens.push(T {
+                        typ: Tt::Number(num),
+                        location: Range(start, current_location),
+                    });
                 } else if char.is_alphabetic() {
                     parse_identifier(char, &mut src, &mut current_location, &mut tokens);
                 } else if !is_skippable(char) {
@@ -191,12 +195,36 @@ pub fn tokenize(source_code: &str) -> Result<Vec<Token>, String> {
     Ok(tokens)
 }
 
+fn read_num(
+    char: char,
+    src: &mut Peekable<std::str::Chars<'_>>,
+    current_location: &mut Location,
+) -> i16 {
+    let mut num = String::new();
+    num.push(char);
+    let mut c = src.peek();
+
+    loop {
+        let Some(n) = c else {
+            break;
+        };
+        if !n.is_ascii_digit() {
+            break;
+        }
+        num.push(*n);
+        next(src, current_location);
+        c = src.peek();
+    }
+    num.parse().unwrap()
+}
+
 fn parse_identifier(
     char: char,
     src: &mut Peekable<std::str::Chars<'_>>,
     current_location: &mut Location,
     tokens: &mut Vec<Token>,
 ) {
+    let start = *current_location;
     let mut identifier = String::new();
     identifier.push(char);
     let mut c = src.peek();
@@ -213,5 +241,5 @@ fn parse_identifier(
         c = src.peek();
     }
     let len = identifier.len() as u16;
-    tokens.push(T::with_len(keyword(identifier), *current_location, len));
+    tokens.push(T::with_len(keyword(identifier), start, len));
 }
