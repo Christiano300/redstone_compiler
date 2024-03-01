@@ -149,6 +149,7 @@ pub fn tokenize(source_code: &str) -> Result<Vec<Token>, String> {
                 }
             }
             '#' => while next(&mut src, &mut current_location) != Some('\n') {},
+            '\t' => return Err(format!("Please indent using spaces, tabs break the errors, found tab at {current_location:?}")),
             _ => {
                 if char.is_ascii_digit() {
                     let mut num = String::new();

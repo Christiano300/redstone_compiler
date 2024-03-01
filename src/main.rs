@@ -76,7 +76,7 @@ fn main() -> io::Result<()> {
     let assembly = match compile_program(ast) {
         Ok(assembly) => assembly,
         Err(err) => {
-            println!("{err:#?}");
+            err.pretty_print(code.as_str(), path.as_str());
             return Ok(());
         }
     };

@@ -7,7 +7,7 @@ pub struct Location(pub u16, pub u16);
 
 impl Debug for Location {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{}", self.0, self.1)
+        write!(f, "{}:{}", self.0 + 1, self.1)
     }
 }
 

@@ -494,10 +494,7 @@ impl Parser {
                 value
             }
             TokenType::Eof => return Err("Unexpected EOF while parsing".to_string()),
-            _ => panic!(
-                "{}",
-                format!("Unexpected token found while parsing: {token:?}")
-            ),
+            _ => return Err(format!("Unexpected token found while parsing: {token:?}")),
         })
     }
 }
