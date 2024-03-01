@@ -1,15 +1,14 @@
 use crate::{
     backend::{
-        compiler::ErrorType,
         module::{arg_parse, Arg},
-        Compiler, Error, ModuleCall,
+        Compiler, Error,
     },
     instr,
 };
 
-use super::Res;
+use super::{Call, ErrorType, Res};
 
-pub fn module(compiler: &mut Compiler, call: &ModuleCall) -> Res {
+pub fn module(compiler: &mut Compiler, call: &Call) -> Res {
     match call.method_name.as_str() {
         "write" => write(compiler, call),
         "read" => read(compiler, call),
@@ -20,7 +19,7 @@ pub fn module(compiler: &mut Compiler, call: &ModuleCall) -> Res {
     }
 }
 
-fn read(compiler: &mut Compiler, call: &ModuleCall) -> Res {
+fn read(compiler: &mut Compiler, call: &Call) -> Res {
     let args = arg_parse(
         compiler,
         [Arg::Constant("Inslot")],
@@ -43,7 +42,7 @@ fn read(compiler: &mut Compiler, call: &ModuleCall) -> Res {
     Ok(())
 }
 
-fn write(compiler: &mut Compiler, call: &ModuleCall) -> Res {
+fn write(compiler: &mut Compiler, call: &Call) -> Res {
     let args = arg_parse(
         compiler,
         [Arg::Number("value"), Arg::Constant("Outslot")],

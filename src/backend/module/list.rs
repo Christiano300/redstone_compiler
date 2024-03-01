@@ -11,12 +11,12 @@ const INIT: &str = "list_init";
 const POINTER: &str = "list_ptr";
 
 use crate::{
-    backend::compiler::{Compiler, Error, ErrorType, ModuleCall, RamPage, RegisterContents},
+    backend::{compiler::Compiler, RamPage, RegisterContents},
     frontend::{ExpressionType, Range},
     instr,
 };
 
-use super::{arg_parse, Arg, Res};
+use super::{arg_parse, Arg, Call, Error, ErrorType, Res};
 
 pub fn init(compiler: &mut Compiler, location: Range) -> Res {
     if is_initialized(compiler) {
@@ -34,7 +34,7 @@ pub fn init(compiler: &mut Compiler, location: Range) -> Res {
     Ok(())
 }
 
-pub fn module(compiler: &mut Compiler, call: &ModuleCall) -> Res {
+pub fn module(compiler: &mut Compiler, call: &Call) -> Res {
     match call.method_name.as_str() {
         "add" => add(compiler, call),
         "pop" => pop(compiler, call),
@@ -49,7 +49,7 @@ pub fn module(compiler: &mut Compiler, call: &ModuleCall) -> Res {
     }
 }
 
-fn add(compiler: &mut Compiler, call: &ModuleCall) -> Res {
+fn add(compiler: &mut Compiler, call: &Call) -> Res {
     let value = arg_parse(compiler, [Arg::Number("value")], call.args, call.location)?[0];
     let pointer = *compiler.get_module_state::<u8>(POINTER).unwrap();
     compiler.eval_expr(value)?;
@@ -64,7 +64,7 @@ fn add(compiler: &mut Compiler, call: &ModuleCall) -> Res {
     Ok(())
 }
 
-fn pop(compiler: &mut Compiler, call: &ModuleCall) -> Res {
+fn pop(compiler: &mut Compiler, call: &Call) -> Res {
     arg_parse(compiler, [], call.args, call.location)?;
 
     let pointer = *compiler.get_module_state::<u8>(POINTER).unwrap();
@@ -81,14 +81,14 @@ fn pop(compiler: &mut Compiler, call: &ModuleCall) -> Res {
     Ok(())
 }
 
-fn get_pointer(compiler: &mut Compiler, call: &ModuleCall) -> Res {
+fn get_pointer(compiler: &mut Compiler, call: &Call) -> Res {
     arg_parse(compiler, [], call.args, call.location)?;
     let pointer = *compiler.get_module_state(POINTER).unwrap();
     instr!(compiler, LA, pointer);
     Ok(())
 }
 
-fn set_pointer(compiler: &mut Compiler, call: &ModuleCall) -> Res {
+fn set_pointer(compiler: &mut Compiler, call: &Call) -> Res {
     let value = arg_parse(compiler, [Arg::Number("value")], call.args, call.location)?[0];
 
     let pointer = *compiler.get_module_state(POINTER).unwrap();
@@ -98,7 +98,7 @@ fn set_pointer(compiler: &mut Compiler, call: &ModuleCall) -> Res {
     Ok(())
 }
 
-fn last(compiler: &mut Compiler, call: &ModuleCall) -> Res {
+fn last(compiler: &mut Compiler, call: &Call) -> Res {
     arg_parse(compiler, [], call.args, call.location)?;
 
     let pointer = *compiler.get_module_state(POINTER).unwrap();
@@ -114,7 +114,7 @@ fn last(compiler: &mut Compiler, call: &ModuleCall) -> Res {
     Ok(())
 }
 
-fn at(compiler: &mut Compiler, call: &ModuleCall) -> Res {
+fn at(compiler: &mut Compiler, call: &Call) -> Res {
     let address = arg_parse(compiler, [Arg::Number("address")], call.args, call.location)?[0];
     let location = call.args.first().unwrap().location;
     if Compiler::can_put_into_b(address) {

@@ -1,96 +1,22 @@
 use std::{
     any::Any,
     collections::{HashMap, HashSet},
-    fmt::{Debug, Display},
+    fmt::Debug,
 };
 
 use vec1::{vec1, Vec1};
 
-use crate::frontend::{EqualityOperator, Expression, ExpressionType, Operator, Range};
+use crate::{
+    backend::{module::Call, ComputerState, Instr, RegisterContents, Scope},
+    frontend::{EqualityOperator, Expression, ExpressionType, Operator, Range},
+};
 
-use super::{module::MODULES, Instruction, InstructionVariant};
+use super::{
+    module::{call, exist, init},
+    Error, ErrorType, Instruction, InstructionVariant,
+};
 
 const VAR_SLOTS: usize = 32;
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum ErrorType {
-    NonexistentVar(String),
-    NonexistentInlineVar(String),
-    TooManyVars,
-    ForbiddenInline,
-    UnknownModule(String),
-    UnknownMethod(String),
-    InvalidArgs(String),
-    CompileTimeArg(String),
-    SomethingElseWentWrong(String),
-    ModuleInitTwice(String),
-    EqInNormalExpr,
-    NormalInEqExpr,
-    UseOutsideGlobalScope,
-}
-
-#[derive(PartialEq, Eq)]
-pub struct Error {
-    pub typ: ErrorType,
-    pub location: Range,
-}
-
-impl Debug for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.to_string(f)
-    }
-}
-
-impl Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.to_string(f)
-    }
-}
-
-impl Error {
-    fn to_string(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!(
-            "{}",
-            match &self.typ {
-                ErrorType::NonexistentVar(name) => {
-                    format!("Varialble {name} is not defined")
-                }
-                ErrorType::NonexistentInlineVar(name) => {
-                    format!("Inline variable {name} is not defined")
-                }
-                ErrorType::TooManyVars => "There are too many variales".to_string(),
-                ErrorType::ForbiddenInline => {
-                    "This expression cannot be used in an inline expression".to_string()
-                }
-                ErrorType::UnknownModule(name) => {
-                    format!("The module {name} is either not loaded or doesn't exist")
-                }
-                ErrorType::UnknownMethod(name) => {
-                    format!("The method {name} doesn't exist")
-                }
-                ErrorType::InvalidArgs(args) => {
-                    format!("The arguments {args} are invalid")
-                }
-                ErrorType::SomethingElseWentWrong(e) => format!(
-                    "Something else has gone wrong: {e}. Please report this to the developer"
-                ),
-                ErrorType::ModuleInitTwice(name) => {
-                    format!("The module {name} was initialilzed twice")
-                }
-                ErrorType::EqInNormalExpr => {
-                    "You can't use an Equality Expression in a Normal Expression".to_string()
-                }
-                ErrorType::NormalInEqExpr => "You can't use a normal Expression here".to_string(),
-                ErrorType::UseOutsideGlobalScope =>
-                    "You can only use 'use' in the global scope".to_string(),
-                ErrorType::CompileTimeArg(name) => {
-                    format!("{name} has to be known at compile-time")
-                }
-            },
-        ))?;
-        Ok(())
-    }
-}
 
 type Res<T = ()> = Result<T, Error>;
 
@@ -136,65 +62,6 @@ macro_rules! instr {
 pub fn compile_program(ast: Vec<Expression>) -> Res<Vec<Instruction>> {
     let compiler = Compiler::new();
     compiler.generate_assembly(ast)
-}
-
-#[derive(Default, Copy, Clone, Debug, PartialEq, Eq)]
-#[allow(unused)]
-pub enum RegisterContents {
-    Variable(u8),
-    Number(i16),
-    RamAddress(i32),
-    #[default]
-    Unknown,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RamPage {
-    ThisOne(u8),
-    Unknown,
-}
-
-impl Default for RamPage {
-    fn default() -> Self {
-        Self::ThisOne(0)
-    }
-}
-
-#[derive(Default, Copy, Clone, Debug)]
-pub struct ComputerState {
-    pub a: RegisterContents,
-    pub b: RegisterContents,
-    pub c: RegisterContents,
-    pub ram_page: RamPage,
-}
-
-#[derive(Debug)]
-pub enum Instr {
-    Code(Instruction),
-    Scope(Vec<Instr>),
-}
-
-#[derive(Debug, Default)]
-pub struct Scope {
-    pub state: ComputerState,
-    variables: HashMap<String, u8>,
-    inline_variables: HashMap<String, i16>,
-    instructions: Vec<Instr>,
-}
-
-impl Scope {
-    fn with_state(state: ComputerState) -> Self {
-        Self {
-            state,
-            ..Self::default()
-        }
-    }
-}
-
-pub struct ModuleCall<'a> {
-    pub method_name: &'a String,
-    pub args: &'a Vec<Expression>,
-    pub location: Range,
 }
 
 #[derive(Debug)]
@@ -385,20 +252,13 @@ impl Compiler {
                         location: line.location,
                     });
                 }
-                if !MODULES.with(|modules| modules.borrow().contains_key(&module)) {
+                if !exist(&module) {
                     return Err(Error {
                         typ: ErrorType::UnknownModule(module),
                         location: line.location,
                     });
                 }
-                MODULES.with(|modules| {
-                    if let Some(ref mut init) =
-                        &mut modules.borrow_mut().get_mut(&module).unwrap().init
-                    {
-                        return init(self, line.location);
-                    }
-                    Ok(())
-                })?;
+                init(&module, self, line.location)?;
                 self.modules.insert(module);
 
                 Ok(())
@@ -909,26 +769,15 @@ impl Compiler {
             });
         }
 
-        // don't ask
-        MODULES.with(|modules| {
-            (modules
-                .borrow_mut()
-                .get_mut(module)
-                .ok_or_else(|| Error {
-                    typ: ErrorType::UnknownModule(module.clone()),
-                    location: function.location,
-                })?
-                .handler)(
-                self,
-                &ModuleCall {
-                    method_name: method,
-                    args,
-                    location: function.location,
-                },
-            )?;
-
-            Ok(())
-        })
+        call(
+            module,
+            self,
+            &Call {
+                method_name: method,
+                args,
+                location: function.location,
+            },
+        )
     }
 
     fn replace_jump_marks(instructions: &mut [Instruction], jump_marks: &HashMap<u8, u8>) {

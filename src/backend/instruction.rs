@@ -132,9 +132,9 @@ impl Debug for Instruction {
     }
 }
 
-use crate::{backend::compiler::RamPage, frontend::EqualityOperator};
+use crate::frontend::EqualityOperator;
 
-use super::{compiler::RegisterContents, ComputerState};
+use super::{ComputerState, RamPage, RegisterContents};
 
 impl Instruction {
     /// Creates a new [`Instruction`].
