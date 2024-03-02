@@ -11,6 +11,12 @@ macro_rules! err {
             location: $loc,
         })
     };
+    ($type:expr, $loc:expr) => {
+        Err($crate::error::Error {
+            typ: Box::new($type),
+            location: $loc,
+        })
+    };
 }
 
 #[allow(clippy::module_name_repetitions)]

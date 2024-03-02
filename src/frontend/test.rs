@@ -1,11 +1,14 @@
 mod lexer_tests {
 
-    fn token_types(code: &str) -> Result<Vec<TokenType>, String> {
+    fn token_types(code: &str) -> Result<Vec<TokenType>, Error> {
         Ok(tokenize(code)?.into_iter().map(|t| t.typ).collect())
     }
     use std::iter::once;
 
-    use crate::frontend::{tokenize, EqualityOperator, Operator, TokenType};
+    use crate::{
+        error::Error,
+        frontend::{tokenize, EqualityOperator, Operator, TokenType},
+    };
 
     #[test]
     fn operators() {
@@ -20,8 +23,8 @@ mod lexer_tests {
             .map(TokenType::BinaryOperator)
             .chain(once(TokenType::Eof))
             .collect();
-        let ast = token_types(code);
-        assert_eq!(Ok(expected), ast);
+        let ast = token_types(code).expect("Code to compile");
+        assert_eq!(expected, ast);
     }
 
     #[test]
@@ -33,8 +36,8 @@ mod lexer_tests {
             .chain(ops.into_iter().map(TokenType::EqOperator))
             .chain(once(TokenType::Eof))
             .collect();
-        let ast = token_types(code);
-        assert_eq!(Ok(expected), ast);
+        let ast = token_types(code).expect("Code to compile");
+        assert_eq!(expected, ast);
     }
 
     #[test]
@@ -47,8 +50,8 @@ mod lexer_tests {
             .map(TokenType::IOperator)
             .chain(once(TokenType::Eof))
             .collect();
-        let ast = token_types(code);
-        assert_eq!(Ok(expected), ast);
+        let ast = token_types(code).expect("Code to compile");
+        assert_eq!(expected, ast);
     }
 
     #[test]
@@ -59,7 +62,7 @@ mod lexer_tests {
             .map(TokenType::Number)
             .chain(once(TokenType::Eof))
             .collect();
-        let ast = token_types(code);
-        assert_eq!(Ok(expected), ast);
+        let ast = token_types(code).expect("Code to compile");
+        assert_eq!(expected, ast);
     }
 }
