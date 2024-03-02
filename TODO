@@ -1,4 +1,8 @@
-- update cli again to test for directory in current location
+- Good errors for parser
+- Good errors for lexer
+^-- v0.9 --^
+- Identifier Positions
+^-- v1.0 --^
 - MCSchematic
 - optimize disc jumps
 - LSP
