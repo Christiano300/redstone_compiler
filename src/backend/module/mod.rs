@@ -3,9 +3,12 @@ mod list;
 mod ram;
 mod screen;
 
-use crate::frontend::{Expression, Range};
+use crate::{
+    error::Error,
+    frontend::{Expression, Range},
+};
 
-use super::{Compiler, Error, ErrorType};
+use super::{Compiler, ErrorType};
 
 pub fn call(name: &str, compiler: &mut Compiler, call: &Call) -> Res {
     match name {
@@ -14,7 +17,7 @@ pub fn call(name: &str, compiler: &mut Compiler, call: &Call) -> Res {
         "ram" => ram::module(compiler, call),
         "list" => list::module(compiler, call),
         _ => Err(Error {
-            typ: ErrorType::UnknownModule(call.method_name.clone()),
+            typ: Box::new(ErrorType::UnknownModule(call.method_name.clone())),
             location: call.location,
         }),
     }
@@ -50,7 +53,9 @@ fn arg_parse<'a, const COUNT: usize>(
 ) -> Res<[&'a Expression; COUNT]> {
     if types.len() != args.len() {
         return Err(Error {
-            typ: ErrorType::InvalidArgs("Wrong number of Arguments".to_string()),
+            typ: Box::new(ErrorType::InvalidArgs(
+                "Wrong number of Arguments".to_string(),
+            )),
             location,
         });
     }
@@ -59,12 +64,11 @@ fn arg_parse<'a, const COUNT: usize>(
         .zip(args.iter())
         .try_for_each(|(typ, arg)| match typ {
             Arg::Constant(name) => match compiler.try_get_constant(arg) {
-                Ok(Some(_)) => Ok(()), // if we can get the value at compile-time, its ok
-                Ok(None) => Err(Error {
-                    typ: ErrorType::CompileTimeArg(name.to_string()),
+                Some(_) => Ok(()), // if we can get the value at compile-time, its ok
+                None => Err(Error {
+                    typ: Box::new(ErrorType::CompileTimeArg(name.to_string())),
                     location: arg.location,
                 }), // otherwise we error
-                err => err.map(|_res| ()), // return any other error
             },
             Arg::Number(..) => Ok(()),
         })?;

@@ -21,7 +21,7 @@ use super::{arg_parse, Arg, Call, Error, ErrorType, Res};
 pub fn init(compiler: &mut Compiler, location: Range) -> Res {
     if is_initialized(compiler) {
         return Err(Error {
-            typ: ErrorType::ModuleInitTwice("list".to_string()),
+            typ: Box::new(ErrorType::ModuleInitTwice("list".to_string())),
             location,
         });
     }
@@ -43,7 +43,7 @@ pub fn module(compiler: &mut Compiler, call: &Call) -> Res {
         "last" => last(compiler, call),
         "at" => at(compiler, call),
         _ => Err(Error {
-            typ: ErrorType::UnknownMethod(call.method_name.clone()),
+            typ: Box::new(ErrorType::UnknownMethod(call.method_name.clone())),
             location: call.location,
         }),
     }
@@ -128,7 +128,7 @@ fn at(compiler: &mut Compiler, call: &Call) -> Res {
         }
     }
 
-    match compiler.try_get_constant(address)? {
+    match compiler.try_get_constant(address) {
         Some(value)
             if compiler.last_scope().state.ram_page == RamPage::ThisOne((value / 16) as u8) => {}
         _ => instr!(compiler, RC),
@@ -146,7 +146,7 @@ fn is_initialized(compiler: &mut Compiler) -> bool {
 
 fn find_pointer_var_slot(slots: &[bool; 32], location: Range) -> Res<usize> {
     slots.iter().rev().position(|slot| !*slot).ok_or(Error {
-        typ: ErrorType::TooManyVars,
+        typ: Box::new(ErrorType::TooManyVars),
         location,
     })
 }

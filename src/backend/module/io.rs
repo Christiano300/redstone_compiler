@@ -1,8 +1,9 @@
 use crate::{
     backend::{
         module::{arg_parse, Arg},
-        Compiler, Error,
+        Compiler,
     },
+    error::Error,
     instr,
 };
 
@@ -13,7 +14,7 @@ pub fn module(compiler: &mut Compiler, call: &Call) -> Res {
         "write" => write(compiler, call),
         "read" => read(compiler, call),
         _ => Err(Error {
-            typ: ErrorType::UnknownMethod(call.method_name.clone()),
+            typ: Box::new(ErrorType::UnknownMethod(call.method_name.clone())),
             location: call.location,
         }),
     }
@@ -27,10 +28,12 @@ fn read(compiler: &mut Compiler, call: &Call) -> Res {
         call.location,
     )?;
 
-    let slot = compiler.try_get_constant(args[0])?.unwrap();
+    let slot = compiler.try_get_constant(args[0]).unwrap();
     if !(0..8).contains(&slot) {
         return Err(Error {
-            typ: ErrorType::InvalidArgs("Input slot has to be from 0 to 7".to_string()),
+            typ: Box::new(ErrorType::InvalidArgs(
+                "Input slot has to be from 0 to 7".to_string(),
+            )),
             location: call.args.first().unwrap().location,
         });
     }
@@ -50,10 +53,12 @@ fn write(compiler: &mut Compiler, call: &Call) -> Res {
         call.location,
     )?;
 
-    let slot = compiler.try_get_constant(args[1])?.unwrap();
+    let slot = compiler.try_get_constant(args[1]).unwrap();
     if !(0..8).contains(&slot) {
         return Err(Error {
-            typ: ErrorType::InvalidArgs("Output slot has to be from 0 to 7".to_string()),
+            typ: Box::new(ErrorType::InvalidArgs(
+                "Output slot has to be from 0 to 7".to_string(),
+            )),
             location: call.args.get(1).unwrap().location,
         });
     }

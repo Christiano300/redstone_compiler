@@ -8,12 +8,13 @@ use vec1::{vec1, Vec1};
 
 use crate::{
     backend::{module::Call, ComputerState, Instr, RegisterContents, Scope},
+    error::Error,
     frontend::{EqualityOperator, Expression, ExpressionType, Operator, Range},
 };
 
 use super::{
     module::{call, exist, init},
-    Error, ErrorType, Instruction, InstructionVariant,
+    ErrorType, Instruction, InstructionVariant,
 };
 
 const VAR_SLOTS: usize = 32;
@@ -52,11 +53,11 @@ macro_rules! instr {
 /// use redstone_compiler::{frontend::{Expression, ExpressionType, Range, Location}, backend::{compile_program, Instruction, InstructionVariant}};
 /// let ast = vec![Expression { typ: ExpressionType::NumericLiteral(5), location: Range(Location(0, 0), Location(0, 0)) }];
 ///
-/// let compiled = compile_program(ast);
+/// let compiled = compile_program(ast).unwrap();
 ///
 /// assert_eq!(
 ///     compiled,
-///     Ok(vec![Instruction::new(InstructionVariant::LAL, Some(5))])
+///     vec![Instruction::new(InstructionVariant::LAL, Some(5))]
 /// );
 /// ```
 pub fn compile_program(ast: Vec<Expression>) -> Res<Vec<Instruction>> {
@@ -116,7 +117,7 @@ impl Compiler {
             }
         }
         Err(Error {
-            typ: ErrorType::NonexistentInlineVar(symbol.clone()),
+            typ: Box::new(ErrorType::NonexistentInlineVar(symbol.clone())),
             location,
         })
     }
@@ -135,7 +136,7 @@ impl Compiler {
             }
         }
         let slot = self.get_next_available_slot().ok_or(Error {
-            typ: ErrorType::TooManyVars,
+            typ: Box::new(ErrorType::TooManyVars),
             location,
         })?;
         self.last_scope_mut()
@@ -153,7 +154,7 @@ impl Compiler {
         self.get_var_noerror(symbol).map_or_else(
             || {
                 Err(Error {
-                    typ: ErrorType::NonexistentVar(symbol.clone()),
+                    typ: Box::new(ErrorType::NonexistentVar(symbol.clone())),
                     location,
                 })
             },
@@ -179,7 +180,7 @@ impl Compiler {
     /// When there are too many variables
     pub fn insert_temp_var(&mut self, location: Range) -> Res<u8> {
         self.get_next_available_slot().ok_or(Error {
-            typ: ErrorType::TooManyVars,
+            typ: Box::new(ErrorType::TooManyVars),
             location,
         })
     }
@@ -241,20 +242,23 @@ impl Compiler {
     fn eval_statement(&mut self, line: Expression) -> Res {
         match line.typ {
             ExpressionType::InlineDeclaration { symbol, value } => {
-                let value = self.eval_after_inline(&value)?;
+                let value = self.try_eval_const(&value).map_err(|loc| Error {
+                    typ: Box::new(ErrorType::ForbiddenInline),
+                    location: loc,
+                })?;
                 self.insert_inline_var(symbol, value);
                 Ok(())
             }
             ExpressionType::Use(module) => {
                 if !self.is_root_scope() {
                     return Err(Error {
-                        typ: ErrorType::UseOutsideGlobalScope,
+                        typ: Box::new(ErrorType::UseOutsideGlobalScope),
                         location: line.location,
                     });
                 }
                 if !exist(&module) {
                     return Err(Error {
-                        typ: ErrorType::UnknownModule(module),
+                        typ: Box::new(ErrorType::UnknownModule(module)),
                         location: line.location,
                     });
                 }
@@ -408,16 +412,18 @@ impl Compiler {
         Ok(())
     }
 
-    fn eval_after_inline(&mut self, expr: &Expression) -> Res<i16> {
+    fn try_eval_const(&mut self, expr: &Expression) -> Result<i16, Range> {
         match &expr.typ {
-            ExpressionType::Identifier(name) => self.get_inline_var(name, expr.location),
+            ExpressionType::Identifier(name) => self
+                .get_inline_var(name, expr.location)
+                .map_err(|e| e.location),
             ExpressionType::BinaryExpr {
                 left,
                 right,
                 operator,
             } => {
-                let left = self.eval_after_inline(left)?;
-                let right = self.eval_after_inline(right)?;
+                let left = self.try_eval_const(left)?;
+                let right = self.try_eval_const(right)?;
                 Ok(match operator {
                     Operator::Plus => left + right,
                     Operator::Minus => left - right,
@@ -428,10 +434,7 @@ impl Compiler {
                 })
             }
             ExpressionType::NumericLiteral(value) => Ok(*value),
-            _ => Err(Error {
-                typ: ErrorType::ForbiddenInline,
-                location: expr.location,
-            }),
+            _ => Err(expr.location),
         }
     }
 
@@ -454,7 +457,7 @@ impl Compiler {
             ExpressionType::Call { args, function } => self.eval_call(function, args)?,
             ExpressionType::EqExpr { .. } => {
                 return Err(Error {
-                    typ: ErrorType::EqInNormalExpr,
+                    typ: Box::new(ErrorType::EqInNormalExpr),
                     location: expr.location,
                 })
             }
@@ -574,19 +577,13 @@ impl Compiler {
     /// # Errors
     ///
     /// on any compiler error
-    pub fn try_get_constant(&mut self, value: &Expression) -> Res<Option<i16>> {
-        Ok(match &value.typ {
+    pub fn try_get_constant(&mut self, value: &Expression) -> Option<i16> {
+        match &value.typ {
             ExpressionType::NumericLiteral(value) => Some(*value),
             ExpressionType::Identifier(symbol) => self.get_inline_var(symbol, value.location).ok(),
-            ExpressionType::BinaryExpr { .. } => match self.eval_after_inline(value) {
-                Ok(value) => Some(value),
-                Err(err) => match &err.typ {
-                    ErrorType::NonexistentInlineVar(..) | ErrorType::ForbiddenInline => None,
-                    _ => return Err(err),
-                },
-            },
+            ExpressionType::BinaryExpr { .. } => self.try_eval_const(value).ok(),
             _ => None,
-        })
+        }
     }
 
     /// puts a into b
@@ -631,16 +628,16 @@ impl Compiler {
                     self.eval_expr(expr)?;
                 } else {
                     return Err(Error {
-                        typ: ErrorType::SomethingElseWentWrong("put_a".to_string()),
+                        typ: Box::new(ErrorType::SomethingElseWentWrong("put_a".to_string())),
                         location: expr.location,
                     });
                 }
             }
             _ => {
                 return Err(Error {
-                    typ: ErrorType::SomethingElseWentWrong(
+                    typ: Box::new(ErrorType::SomethingElseWentWrong(
                         "put_a called on wrong expression".to_string(),
-                    ),
+                    )),
                     location: expr.location,
                 })
             }
@@ -674,9 +671,9 @@ impl Compiler {
             }
             _ => {
                 return Err(Error {
-                    typ: ErrorType::SomethingElseWentWrong(
+                    typ: Box::new(ErrorType::SomethingElseWentWrong(
                         "put_b called on wrong expression".to_string(),
-                    ),
+                    )),
                     location: expr.location,
                 })
             }
@@ -750,21 +747,21 @@ impl Compiler {
                 }
                 _ => {
                     return Err(Error {
-                        typ: ErrorType::UnknownModule(format!("{object:?}")),
+                        typ: Box::new(ErrorType::UnknownModule(format!("{object:?}"))),
                         location: function.location,
                     })
                 }
             },
             _ => {
                 return Err(Error {
-                    typ: ErrorType::UnknownMethod(format!("{function:?}")),
+                    typ: Box::new(ErrorType::UnknownMethod(format!("{function:?}"))),
                     location: function.location,
                 })
             }
         }
         if !self.modules.contains(module) {
             return Err(Error {
-                typ: ErrorType::UnknownModule(module.clone()),
+                typ: Box::new(ErrorType::UnknownModule(module.clone())),
                 location: function.location,
             });
         }
@@ -844,7 +841,7 @@ fn eval_condition(
     } = condition.typ
     else {
         return Err(Error {
-            typ: ErrorType::NormalInEqExpr,
+            typ: Box::new(ErrorType::NormalInEqExpr),
             location: condition.location,
         });
     };

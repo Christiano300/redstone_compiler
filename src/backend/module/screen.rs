@@ -32,7 +32,7 @@ pub fn module(compiler: &mut Compiler, call: &Call) -> Res {
         "invert" => whole_pixel_operation(compiler, call, 8),
         "off" => whole_pixel_operation(compiler, call, 16),
         _ => Err(Error {
-            typ: ErrorType::UnknownMethod(call.method_name.clone()),
+            typ: Box::new(ErrorType::UnknownMethod(call.method_name.clone())),
             location: call.location,
         }),
     }
@@ -73,7 +73,7 @@ fn write_screenpos(
     y: &Expression,
     location: Range,
 ) -> Res {
-    match (compiler.try_get_constant(x)?, compiler.try_get_constant(y)?) {
+    match (compiler.try_get_constant(x), compiler.try_get_constant(y)) {
         (Some(x), Some(y)) => {
             compiler.put_a_number(x << 8 | y);
         }

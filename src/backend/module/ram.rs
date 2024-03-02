@@ -19,7 +19,7 @@ pub fn module(compiler: &mut Compiler, call: &Call) -> Res {
         "write" => ram_write(compiler, call),
         "copy" => ram_copy(compiler, call),
         _ => Err(Error {
-            typ: ErrorType::UnknownMethod(call.method_name.clone()),
+            typ: Box::new(ErrorType::UnknownMethod(call.method_name.clone())),
             location: call.location,
         }),
     }
@@ -94,7 +94,7 @@ fn ram_read(compiler: &mut Compiler, call: &Call) -> Res {
 
 /// puts the address in the B register and calls RC if neccessary
 fn put_address(compiler: &mut Compiler, address: &Expression, location: Range) -> Res {
-    if let Some(value) = compiler.try_get_constant(address)? {
+    if let Some(value) = compiler.try_get_constant(address) {
         if compiler.last_scope().state.ram_page != RamPage::ThisOne((value / 16) as u8) {
             instr!(compiler, RC);
         }
