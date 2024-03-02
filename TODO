@@ -1,8 +1,9 @@
 - Good errors for parser
 - Good errors for lexer
-^-- v0.9 --^
+^-- v0.0.9 --^
 - Identifier Positions
-^-- v1.0 --^
+- Use multiple with comma
+^-- v0.1.0 --^
 - MCSchematic
 - optimize disc jumps
 - LSP

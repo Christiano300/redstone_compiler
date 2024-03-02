@@ -5,9 +5,41 @@ use std::{
     io::{self, Read, Write},
 };
 
+use colored::{Colorize, CustomColor};
 use redstone_compiler::frontend::{tokenize, Parser};
 
 use redstone_compiler::backend::compile_program;
+
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+const fn color_from_hex(n: i32) -> CustomColor {
+    CustomColor {
+        r: (n >> 16 & 0xff) as u8,
+        g: (n >> 8 & 0xff) as u8,
+        b: (n & 0xff) as u8,
+    }
+}
+
+const REDSTONE: [CustomColor; 8] = [
+    color_from_hex(0x00EE_0F00),
+    color_from_hex(0x00E2_0F00),
+    color_from_hex(0x00CF_1000),
+    color_from_hex(0x00BC_1000),
+    color_from_hex(0x00AA_1100),
+    color_from_hex(0x0094_1100),
+    color_from_hex(0x007F_1200),
+    color_from_hex(0x0069_1200),
+];
+
+fn redstone_color_print(str: &str) {
+    for char in str.chars() {
+        print!(
+            "{}",
+            char.to_string()
+                .custom_color(fastrand::choice(REDSTONE).unwrap())
+        );
+    }
+}
 
 fn has_arg(args: &mut VecDeque<String>, arg: &'static str) -> bool {
     if args.contains(&arg.to_string()) {
@@ -19,6 +51,7 @@ fn has_arg(args: &mut VecDeque<String>, arg: &'static str) -> bool {
 }
 
 fn main() -> io::Result<()> {
+    redstone_color_print(format!("RedC v{VERSION}\n").as_str());
     let mut args: VecDeque<_> = env::args().collect();
     args.pop_front();
 
@@ -99,6 +132,12 @@ fn main() -> io::Result<()> {
         .for_each(|line| bin_string.push_str(line.as_str()));
 
     fs::write(format!("{dir}/{program}.bin"), bin_string)?;
+    println!(
+        "{}\n{} {}",
+        "Compilation finished successful".bright_green(),
+        "Saved assembly to".truecolor(19, 161, 14),
+        format!("{dir}/{program}.asm").truecolor(222, 222, 222)
+    );
 
     Ok(())
 }
@@ -113,7 +152,7 @@ fn input(prompt: &str) -> Result<String, io::Error> {
 
 fn repl() -> io::Result<()> {
     let mut parser = Parser::new();
-    println!("Repl v -0.1");
+    println!("Repl v{VERSION}");
     loop {
         let line = input("> ")?;
         if line.as_str() == "exit" {
