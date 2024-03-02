@@ -33,9 +33,12 @@ fn main() -> io::Result<()> {
         return repl();
     }
 
-    let dir = match env::current_dir() {
-        Ok(p) if p.ends_with("programs") => program.clone(),
-        _ => format!("programs/{program}"),
+    let dir = if fs::metadata(format!("{program}/{program}.🖥️")).is_ok()
+        || matches!(env::current_dir(), Ok(p) if p.ends_with("programs"))
+    {
+        program.clone()
+    } else {
+        format!("programs/{program}")
     };
     let path = format!("{dir}/{program}.🖥️");
     let Ok(mut file) = File::open(path.clone()) else {
