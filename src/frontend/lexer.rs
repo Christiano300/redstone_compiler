@@ -1,5 +1,7 @@
 use std::iter::Peekable;
 
+use crate::{err, error::Error};
+
 use super::{eq_operator, operator, EqualityOperator as EqOp, Location, Operator, Range};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -51,6 +53,26 @@ impl Token {
     }
 }
 
+enum ErrorType {
+    InvalidNumber(String),
+    Eof,
+    InvalidChar(String),
+    TabIndent,
+}
+
+impl crate::error::ErrorType for ErrorType {
+    fn get_message(&self) -> String {
+        match self {
+            Self::InvalidNumber(n) => format!("Invalid number: {n}"),
+            Self::Eof => "Unexpected End of file".to_string(),
+            Self::InvalidChar(c) => format!("Invalid character: {c}"),
+            Self::TabIndent => {
+                "Pleas only format using spaces, tabs break the formatting".to_string()
+            }
+        }
+    }
+}
+
 fn keyword(string: String) -> TokenType {
     match string.as_str() {
         "inline" => TokenType::Inline,
@@ -92,7 +114,7 @@ use TokenType as Tt;
 /// # Errors
 ///
 /// This function will return an error if there is an invalid character
-pub fn tokenize(source_code: &str) -> Result<Vec<Token>, String> {
+pub fn tokenize(source_code: &str) -> Result<Vec<Token>, Error> {
     let mut tokens: Vec<Token> = vec![];
     let mut src = source_code.chars().peekable();
     let mut current_location = Location(0, 0);
@@ -123,25 +145,7 @@ pub fn tokenize(source_code: &str) -> Result<Vec<Token>, String> {
                     next(&mut src, &mut current_location);
                 }
             }
-            '-' => tokens.push(match src.peek() {
-                None => T::from_char(Tt::BinaryOperator(Operator::Minus), current_location),
-                Some(c) => match c {
-                    '=' => {
-                        let t = T::with_len(Tt::IOperator(Operator::Minus), current_location, 2);
-                        next(&mut src, &mut current_location);
-                        t
-                    }
-                    '0'..='9' => {
-                        let start = current_location;
-                        let num = -read_num(next(&mut src, &mut current_location).ok_or("Unexpected end")?, &mut src, &mut current_location)?;
-                        T {
-                            typ: Tt::Number(num),
-                            location: Range(start, current_location),
-                        }
-                    }
-                    _ => T::from_char(Tt::BinaryOperator(Operator::Minus), current_location),
-                },
-            }),
+            '-' => tokens.push(read_hyphen(&mut src, &mut current_location)?),
             ',' => tokens.push(T::from_char(Tt::Comma, current_location)),
             '.' => tokens.push(T::from_char(Tt::Dot, current_location)),
 
@@ -168,11 +172,12 @@ pub fn tokenize(source_code: &str) -> Result<Vec<Token>, String> {
                 }
             }
             '#' => while next(&mut src, &mut current_location) != Some('\n') {},
-            '\t' => return Err(format!("Please indent using spaces, tabs break the errors, found tab at {current_location:?}")),
+            '\t' => return err!(TabIndent, Range(current_location, current_location)),
             _ => {
                 if char.is_ascii_digit() {
                     let start = current_location;
                     let num = read_num(char, &mut src, &mut current_location)?;
+
                     tokens.push(T {
                         typ: Tt::Number(num),
                         location: Range(start, current_location),
@@ -180,7 +185,10 @@ pub fn tokenize(source_code: &str) -> Result<Vec<Token>, String> {
                 } else if char.is_alphabetic() {
                     read_identifier(char, &mut src, &mut current_location, &mut tokens);
                 } else if !is_skippable(char) {
-                    return Err(format!("Unrecognized Character found: {char:?}"));
+                    return err!(
+                        ErrorType::InvalidChar(char.to_string()),
+                        Range(current_location, current_location)
+                    );
                 }
             }
         }
@@ -195,11 +203,43 @@ pub fn tokenize(source_code: &str) -> Result<Vec<Token>, String> {
     Ok(tokens)
 }
 
+fn read_hyphen(
+    src: &mut Peekable<std::str::Chars<'_>>,
+    current_location: &mut Location,
+) -> Result<Token, Error> {
+    Ok(match src.peek() {
+        None => T::from_char(Tt::BinaryOperator(Operator::Minus), *current_location),
+        Some(c) => match c {
+            '=' => {
+                let t = T::with_len(Tt::IOperator(Operator::Minus), *current_location, 2);
+                next(src, current_location);
+                t
+            }
+            '0'..='9' => {
+                let start = *current_location;
+                let num = -read_num(
+                    next(src, current_location).ok_or(<Result<i16, Error>>::unwrap_err(err!(
+                        Eof,
+                        Range(start, *current_location)
+                    )))?,
+                    src,
+                    current_location,
+                )?;
+                T {
+                    typ: Tt::Number(num),
+                    location: Range(start, *current_location),
+                }
+            }
+            _ => T::from_char(Tt::BinaryOperator(Operator::Minus), *current_location),
+        },
+    })
+}
+
 fn read_num(
     first: char,
     src: &mut Peekable<std::str::Chars<'_>>,
     current_location: &mut Location,
-) -> Result<i16, String> {
+) -> Result<i16, Error> {
     let mut c = src.peek();
 
     if first == '0' {
@@ -257,7 +297,8 @@ fn read_n_num(
     src: &mut Peekable<std::str::Chars<'_>>,
     current_location: &mut Location,
     radix: u32,
-) -> Result<i16, String> {
+) -> Result<i16, Error> {
+    let start = *current_location;
     next(src, current_location);
     let mut c = src.peek();
     let mut num = String::new();
@@ -274,7 +315,12 @@ fn read_n_num(
         c = src.peek();
     }
     u16::from_str_radix(num.as_str(), radix).map_or_else(
-        |_| Err(format!("Invalid hex number at {current_location:?}")),
+        |_| {
+            err!(
+                ErrorType::InvalidNumber(num),
+                Range(start, *current_location)
+            )
+        },
         |u| Ok(u as i16),
     )
 }

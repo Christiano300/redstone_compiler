@@ -51,9 +51,6 @@ fn has_arg(args: &mut VecDeque<String>, arg: &'static str) -> bool {
 }
 
 fn main() -> io::Result<()> {
-    #[cfg(windows)]
-    colored::control::set_virtual_terminal(true).unwrap();
-
     redstone_color_print(format!("RedC v{VERSION}\n").as_str());
     let mut args: VecDeque<_> = env::args().collect();
     args.pop_front();
@@ -92,7 +89,7 @@ fn main() -> io::Result<()> {
     let tokens = match tokenize(code.as_str()) {
         Ok(tokens) => tokens,
         Err(err) => {
-            println!("{err:#?}");
+            err.pretty_print(code.as_str(), path.as_str());
             return Ok(());
         }
     };

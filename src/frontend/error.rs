@@ -19,21 +19,22 @@ pub enum Type {
 impl ErrorType for Type {
     fn get_message(&self) -> String {
         match self {
-            Self::EmptyBlock => "Cannot have empty block. Use 'pass'".to_string(),
-            Self::MissingEnd => "Missing end keyword".to_string(),
-            Self::InvalidModuleName => "Invalid module name".to_string(),
-            Self::InvalidDeclartion => "Expected identifier".to_string(),
-            Self::InvalidAssignment => "Can only assign to identifiers".to_string(),
-            Self::MissingEquals => "Expected equals following identifier".to_string(),
+            Self::EmptyBlock => "Cannot have empty block. Use 'pass'",
+            Self::MissingEnd => "Missing end keyword",
+            Self::InvalidModuleName => "Invalid module name",
+            Self::InvalidDeclartion => "Expected identifier",
+            Self::InvalidAssignment => "Can only assign to identifiers",
+            Self::MissingEquals => "Expected equals following identifier",
             Self::FunctionChaining => {
-                "You can't chain functions, what do you think this is, Python?".to_string()
+                "You can't chain functions, what do you think this is, Python?"
             }
-            Self::MissingOpenParen => "Expected '(' after function call".to_string(),
-            Self::MissingClosingParen => "Missing ')'".to_string(),
-            Self::InvalidDot => "Cannot use . on this".to_string(),
-            Self::Eof => "Unexpected EOF while parsing".to_string(),
-            Self::UnexpectedOther => "Unexpected token found".to_string(),
-            Self::ExpectedParen => "Unexpected token, expected ')'".to_string(),
+            Self::MissingOpenParen => "Expected '(' after function call",
+            Self::MissingClosingParen => "Missing ')'",
+            Self::InvalidDot => "Cannot use . on this",
+            Self::Eof => "Unexpected EOF while parsing",
+            Self::UnexpectedOther => "Unexpected token found",
+            Self::ExpectedParen => "Unexpected token, expected ')'",
         }
+        .to_string()
     }
 }
