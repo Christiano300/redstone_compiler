@@ -1,3 +1,4 @@
+mod colorscreen;
 mod io;
 mod list;
 mod ram;
@@ -16,15 +17,16 @@ pub fn call(name: &str, compiler: &mut Compiler, call: &Call) -> Res {
         "screen" => screen::module(compiler, call),
         "ram" => ram::module(compiler, call),
         "list" => list::module(compiler, call),
+        "colorscreen" => colorscreen::module(compiler, call),
         _ => Err(Error {
-            typ: Box::new(ErrorType::UnknownModule(call.method_name.clone())),
+            typ: Box::new(ErrorType::NonexistentModule(call.method_name.clone())),
             location: call.location,
         }),
     }
 }
 
 pub fn exist(name: &str) -> bool {
-    matches!(name, "io" | "screen" | "ram" | "list")
+    matches!(name, "io" | "screen" | "ram" | "list" | "colorscreen")
 }
 
 pub fn init(name: &str, compiler: &mut Compiler, location: Range) -> Res {

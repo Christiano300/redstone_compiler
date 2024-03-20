@@ -1,5 +1,5 @@
 pub mod ast;
-mod error;
+pub mod error;
 pub mod lexer;
 pub mod location;
 pub mod parser;
@@ -10,6 +10,3 @@ pub use location::*;
 pub use parser::*;
 
 use error::Type as ErrorType;
-
-#[cfg(test)]
-mod test;

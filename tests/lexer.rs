@@ -5,9 +5,9 @@ mod lexer_tests {
     }
     use std::iter::once;
 
-    use crate::{
-        error::Error,
+    use redstone_compiler::{
         frontend::{tokenize, EqualityOperator, Operator, TokenType},
+        Error,
     };
 
     #[test]
