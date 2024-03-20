@@ -6,7 +6,8 @@ pub enum Type {
     NonexistentInlineVar(String),
     TooManyVars,
     ForbiddenInline,
-    UnknownModule(String),
+    NonexistentModule(String),
+    UnlodadedModule(String),
     UnknownMethod(String),
     InvalidArgs(String),
     CompileTimeArg(String),
@@ -15,6 +16,7 @@ pub enum Type {
     EqInNormalExpr,
     NormalInEqExpr,
     UseOutsideGlobalScope,
+    NoConstants,
 }
 
 impl ErrorType for Type {
@@ -30,8 +32,11 @@ impl ErrorType for Type {
             Self::ForbiddenInline => {
                 "This expression cannot be used in an inline expression".to_string()
             }
-            Self::UnknownModule(name) => {
-                format!("The module {name} is either not loaded or doesn't exist")
+            Self::NonexistentModule(name) => {
+                format!("The module {name} doesn't exist")
+            }
+            Self::UnlodadedModule(name) => {
+                format!("The module {name} is not loaded")
             }
             Self::UnknownMethod(name) => {
                 format!("The method {name} doesn't exist")
@@ -53,6 +58,7 @@ impl ErrorType for Type {
             Self::CompileTimeArg(name) => {
                 format!("{name} has to be known at compile-time")
             }
+            Self::NoConstants => "Constants are only supported inside module calls".to_string(),
         }
     }
 }

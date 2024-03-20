@@ -8,6 +8,7 @@ use vec1::{vec1, Vec1};
 
 use crate::{
     backend::{module::Call, ComputerState, Instr, RegisterContents, Scope},
+    err,
     error::Error,
     frontend::{EqualityOperator, Expression, ExpressionType, Operator, Range},
 };
@@ -258,7 +259,7 @@ impl Compiler {
                 }
                 if !exist(&module) {
                     return Err(Error {
-                        typ: Box::new(ErrorType::UnknownModule(module)),
+                        typ: Box::new(ErrorType::NonexistentModule(module)),
                         location: line.location,
                     });
                 }
@@ -456,13 +457,10 @@ impl Compiler {
             }
             ExpressionType::Call { args, function } => self.eval_call(function, args)?,
             ExpressionType::EqExpr { .. } => {
-                return Err(Error {
-                    typ: Box::new(ErrorType::EqInNormalExpr),
-                    location: expr.location,
-                })
+                return err!(EqInNormalExpr, expr.location);
             }
             ExpressionType::Debug => instr!(self, LAL, 17),
-
+            ExpressionType::Member { .. } => return err!(NoConstants, expr.location),
             _ => todo!("unsupported expression: {:?}", expr),
         }
         Ok(())
@@ -593,7 +591,7 @@ impl Compiler {
     /// if there are too many variables
     pub fn switch(&mut self, location: Range) -> Res {
         let temp = self.insert_temp_var(location)?;
-        instr!(self, SVA, temp);
+        self.save_to(temp);
         instr!(self, LB, temp);
         self.cleanup_temp_var(temp);
         Ok(())
@@ -681,6 +679,16 @@ impl Compiler {
         Ok(())
     }
 
+    #[inline]
+    pub fn save_to_out(&mut self, port: u8) {
+        self.save_to(port + 32);
+    }
+
+    #[inline]
+    pub fn save_to(&mut self, slot: u8) {
+        instr!(self, SVA, slot);
+    }
+
     fn is_in_a(&mut self, expr: &Expression) -> bool {
         use ExpressionType as E;
         match &expr.typ {
@@ -747,7 +755,7 @@ impl Compiler {
                 }
                 _ => {
                     return Err(Error {
-                        typ: Box::new(ErrorType::UnknownModule(format!("{object:?}"))),
+                        typ: Box::new(ErrorType::NonexistentModule(format!("{object:?}"))),
                         location: function.location,
                     })
                 }
@@ -761,7 +769,7 @@ impl Compiler {
         }
         if !self.modules.contains(module) {
             return Err(Error {
-                typ: Box::new(ErrorType::UnknownModule(module.clone())),
+                typ: Box::new(ErrorType::UnlodadedModule(module.clone())),
                 location: function.location,
             });
         }
