@@ -50,7 +50,7 @@ pub fn module(compiler: &mut Compiler, call: &Call) -> Res {
 }
 
 fn add(compiler: &mut Compiler, call: &Call) -> Res {
-    let value = arg_parse(compiler, [Arg::Number("value")], call.args, call.location)?[0];
+    let value = arg_parse(compiler, [Arg::Number("value")], call)?[0];
     let pointer = *compiler.get_module_state::<u8>(POINTER).unwrap();
     compiler.eval_expr(value)?;
     if compiler.last_scope().state.b != RegisterContents::Variable(pointer) {
@@ -65,7 +65,7 @@ fn add(compiler: &mut Compiler, call: &Call) -> Res {
 }
 
 fn pop(compiler: &mut Compiler, call: &Call) -> Res {
-    arg_parse(compiler, [], call.args, call.location)?;
+    arg_parse(compiler, [], call)?;
 
     let pointer = *compiler.get_module_state::<u8>(POINTER).unwrap();
 
@@ -82,14 +82,14 @@ fn pop(compiler: &mut Compiler, call: &Call) -> Res {
 }
 
 fn get_pointer(compiler: &mut Compiler, call: &Call) -> Res {
-    arg_parse(compiler, [], call.args, call.location)?;
+    arg_parse(compiler, [], call)?;
     let pointer = *compiler.get_module_state(POINTER).unwrap();
     instr!(compiler, LA, pointer);
     Ok(())
 }
 
 fn set_pointer(compiler: &mut Compiler, call: &Call) -> Res {
-    let value = arg_parse(compiler, [Arg::Number("value")], call.args, call.location)?[0];
+    let value = arg_parse(compiler, [Arg::Number("value")], call)?[0];
 
     let pointer = *compiler.get_module_state(POINTER).unwrap();
     compiler.eval_expr(value)?;
@@ -99,7 +99,7 @@ fn set_pointer(compiler: &mut Compiler, call: &Call) -> Res {
 }
 
 fn last(compiler: &mut Compiler, call: &Call) -> Res {
-    arg_parse(compiler, [], call.args, call.location)?;
+    arg_parse(compiler, [], call)?;
 
     let pointer = *compiler.get_module_state(POINTER).unwrap();
 
@@ -115,7 +115,7 @@ fn last(compiler: &mut Compiler, call: &Call) -> Res {
 }
 
 fn at(compiler: &mut Compiler, call: &Call) -> Res {
-    let address = arg_parse(compiler, [Arg::Number("address")], call.args, call.location)?[0];
+    let address = arg_parse(compiler, [Arg::Number("address")], call)?[0];
     let location = call.args.first().unwrap().location;
     if Compiler::can_put_into_b(address) {
         compiler.put_into_b(address)?;

@@ -39,12 +39,7 @@ pub fn module(compiler: &mut Compiler, call: &Call) -> Res {
 }
 
 fn pixel_operation(compiler: &mut Compiler, call: &Call, op: u8) -> Res {
-    let args = arg_parse(
-        compiler,
-        [Arg::Number("x"), Arg::Number("y")],
-        call.args,
-        call.location,
-    )?;
+    let args = arg_parse(compiler, [Arg::Number("x"), Arg::Number("y")], call)?;
 
     write_screenpos(compiler, args[0], args[1], call.location)?;
     write_screenop(compiler, op);
@@ -52,13 +47,13 @@ fn pixel_operation(compiler: &mut Compiler, call: &Call, op: u8) -> Res {
 }
 
 fn screen_operation(compiler: &mut Compiler, call: &Call, op: u8) -> Res {
-    let _ = arg_parse(compiler, [], call.args, call.location)?;
+    let _ = arg_parse(compiler, [], call)?;
     write_screenop(compiler, op);
     Ok(())
 }
 
 fn whole_pixel_operation(compiler: &mut Compiler, call: &Call, op: u8) -> Res {
-    let args = arg_parse(compiler, [Arg::Number("pos")], call.args, call.location)?;
+    let args = arg_parse(compiler, [Arg::Number("pos")], call)?;
 
     compiler.eval_expr(args[0])?;
     instr!(compiler, SVA, SCREENPOS_REG);
@@ -73,41 +68,54 @@ fn write_screenpos(
     y: &Expression,
     location: Range,
 ) -> Res {
-    match (compiler.try_get_constant(x), compiler.try_get_constant(y)) {
-        (Some(x), Some(y)) => {
-            compiler.put_a_number(x << 8 | y);
+    put_xy(compiler, x, y, location, 8)?;
+    instr!(compiler, SVA, SCREENPOS_REG);
+    Ok(())
+}
+
+pub fn put_xy(
+    compiler: &mut Compiler,
+    upper: &Expression,
+    lower: &Expression,
+    location: Range,
+    offset: u8,
+) -> Res {
+    match (
+        compiler.try_get_constant(upper),
+        compiler.try_get_constant(lower),
+    ) {
+        (Some(upper), Some(lower)) => {
+            compiler.put_a_number(upper << offset | lower);
         }
-        (Some(x), None) => {
-            compiler.eval_expr(y)?;
-            compiler.put_b_number(x << 8);
+        (Some(upper), None) => {
+            compiler.eval_expr(lower)?;
+            compiler.put_b_number(upper << offset);
             instr!(compiler, OR);
         }
-        (None, Some(y)) => {
-            compiler.eval_expr(x)?;
-            instr!(compiler, SUP, 8);
-            compiler.put_b_number(y);
+        (None, Some(lower)) => {
+            compiler.eval_expr(upper)?;
+            instr!(compiler, SUP, offset);
+            compiler.put_b_number(lower);
             instr!(compiler, OR);
         }
         (None, None) => {
-            let simple = Compiler::can_put_into_b(y);
-            compiler.eval_expr(y)?;
+            let simple = Compiler::can_put_into_b(lower);
             if simple {
-                compiler.put_into_b(y)?;
-
-                compiler.eval_expr(x)?;
-                instr!(compiler, SUP, 8);
+                compiler.eval_expr(upper)?;
+                instr!(compiler, SUP, offset);
+                compiler.put_into_b(lower)?;
             } else {
                 let temp = compiler.insert_temp_var(location)?;
+                compiler.eval_expr(lower)?;
                 instr!(compiler, SVA, temp);
-                compiler.eval_expr(x)?;
-                instr!(compiler, SUP, 8);
-                compiler.cleanup_temp_var(temp);
+                compiler.eval_expr(upper)?;
+                instr!(compiler, SUP, offset);
                 instr!(compiler, LB, temp);
+                compiler.cleanup_temp_var(temp);
             }
             instr!(compiler, OR);
         }
     }
-    instr!(compiler, SVA, SCREENPOS_REG);
     Ok(())
 }
 

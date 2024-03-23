@@ -1,4 +1,4 @@
-use std::iter::Peekable;
+use std::{fmt::Debug, iter::Peekable};
 
 use crate::{err, error::Error};
 
@@ -31,7 +31,7 @@ pub enum TokenType {
     Eof,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Token {
     pub typ: TokenType,
     pub location: Range,
@@ -50,6 +50,12 @@ impl Token {
             typ,
             location: Range(location, Location(location.0, location.1 + len - 1)),
         }
+    }
+}
+
+impl Debug for Token {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?} at {:?}", self.typ, self.location)
     }
 }
 

@@ -26,12 +26,7 @@ pub fn module(compiler: &mut Compiler, call: &Call) -> Res {
 }
 
 fn ram_copy(compiler: &mut Compiler, call: &Call) -> Res {
-    let [from, to] = arg_parse(
-        compiler,
-        [Arg::Number("from"), Arg::Number("to")],
-        call.args,
-        call.location,
-    )?;
+    let [from, to] = arg_parse(compiler, [Arg::Number("from"), Arg::Number("to")], call)?;
     put_address(compiler, from, call.location)?;
     instr!(compiler, RR);
     if Compiler::can_put_into_b(to) {
@@ -50,8 +45,7 @@ fn ram_write(compiler: &mut Compiler, call: &Call) -> Res {
     let [value, address] = arg_parse(
         compiler,
         [Arg::Number("value"), Arg::Number("address")],
-        call.args,
-        call.location,
+        call,
     )?;
 
     match (
@@ -85,7 +79,7 @@ fn ram_write(compiler: &mut Compiler, call: &Call) -> Res {
 }
 
 fn ram_read(compiler: &mut Compiler, call: &Call) -> Res {
-    let address = arg_parse(compiler, [Arg::Number("address")], call.args, call.location)?[0];
+    let address = arg_parse(compiler, [Arg::Number("address")], call)?[0];
     put_address(compiler, address, call.location)?;
 
     instr!(compiler, RR);

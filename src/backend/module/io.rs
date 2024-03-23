@@ -21,12 +21,7 @@ pub fn module(compiler: &mut Compiler, call: &Call) -> Res {
 }
 
 fn read(compiler: &mut Compiler, call: &Call) -> Res {
-    let args = arg_parse(
-        compiler,
-        [Arg::Constant("Inslot")],
-        call.args,
-        call.location,
-    )?;
+    let args = arg_parse(compiler, [Arg::Constant("Inslot")], call)?;
 
     let slot = compiler.try_get_constant(args[0]).unwrap();
     if !(0..8).contains(&slot) {
@@ -49,8 +44,7 @@ fn write(compiler: &mut Compiler, call: &Call) -> Res {
     let args = arg_parse(
         compiler,
         [Arg::Number("value"), Arg::Constant("Outslot")],
-        call.args,
-        call.location,
+        call,
     )?;
 
     let slot = compiler.try_get_constant(args[1]).unwrap();

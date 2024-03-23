@@ -5,6 +5,7 @@ mod ram;
 mod screen;
 
 use crate::{
+    err,
     error::Error,
     frontend::{Expression, Range},
 };
@@ -50,20 +51,17 @@ enum Arg {
 fn arg_parse<'a, const COUNT: usize>(
     compiler: &mut Compiler,
     types: [Arg; COUNT],
-    args: &'a [Expression],
-    location: Range,
+    call: &'a Call,
 ) -> Res<[&'a Expression; COUNT]> {
-    if types.len() != args.len() {
-        return Err(Error {
-            typ: Box::new(ErrorType::InvalidArgs(
-                "Wrong number of Arguments".to_string(),
-            )),
-            location,
-        });
+    if types.len() != call.args.len() {
+        return err!(
+            ErrorType::InvalidArgs("Wrong number of Arguments".to_string()),
+            call.location
+        );
     }
     types
         .into_iter()
-        .zip(args.iter())
+        .zip(call.args.iter())
         .try_for_each(|(typ, arg)| match typ {
             Arg::Constant(name) => match compiler.try_get_constant(arg) {
                 Some(_) => Ok(()), // if we can get the value at compile-time, its ok
@@ -75,7 +73,7 @@ fn arg_parse<'a, const COUNT: usize>(
             Arg::Number(..) => Ok(()),
         })?;
 
-    let mut iter = args.iter();
+    let mut iter = call.args.iter();
     let res = [(); COUNT].map(|_res| iter.next().unwrap());
     assert_eq!(res.len(), COUNT);
     Ok(res)
