@@ -38,6 +38,20 @@ impl Parser {
         self.tokens.front().expect("Eof before Stream ends")
     }
 
+    fn eat_if_or<F>(&mut self, validator: F, err: ErrorType, location: Range) -> Res<Token>
+    where
+        F: Fn(&TokenType) -> bool,
+    {
+        let token = self.eat();
+        if !validator(&token.typ) {
+            return Err(Error {
+                typ: Box::new(err),
+                location,
+            });
+        }
+        Ok(token)
+    }
+
     fn eat_if<F>(&mut self, validator: F, err: ErrorType) -> Res<Token>
     where
         F: Fn(&TokenType) -> bool,
@@ -94,7 +108,7 @@ impl Parser {
         // self.at is now elif, else or end
         let mut paths = vec![];
 
-        while matches!(self.at().typ, TokenType::Elif) {
+        while matches!(self.at().typ, TokenType::Elif | TokenType::Eof) {
             self.eat();
             paths.push(self.parse_conditional_branch()?);
         }
@@ -103,7 +117,7 @@ impl Parser {
             Some({
                 self.eat();
                 let mut body = vec![];
-                while !matches!(self.at().typ, TokenType::End) {
+                while !matches!(self.at().typ, TokenType::End | TokenType::Eof) {
                     body.push(self.parse_statement()?);
                 }
                 if body.is_empty() {
@@ -116,7 +130,7 @@ impl Parser {
         };
 
         let end = self
-            .eat_if(match_fn!(TokenType::End), ErrorType::MissingEnd)?
+            .eat_if_or(match_fn!(TokenType::End), ErrorType::MissingEnd, start)?
             .location;
         Ok(Expression {
             typ: ExpressionType::Conditional {
@@ -135,7 +149,7 @@ impl Parser {
         let mut body = vec![];
         while !matches!(
             self.at().typ,
-            TokenType::Elif | TokenType::Else | TokenType::End
+            TokenType::Elif | TokenType::Else | TokenType::End | TokenType::Eof
         ) {
             body.push(self.parse_statement()?);
         }
@@ -149,11 +163,11 @@ impl Parser {
         use TokenType as T;
         let start = self.eat().location;
         let mut body = vec![];
-        while !matches!(self.at().typ, T::End) {
+        while !matches!(self.at().typ, T::End | T::Eof) {
             body.push(self.parse_statement()?);
         }
         let end = self
-            .eat_if(match_fn!(TokenType::End), ErrorType::MissingEnd)?
+            .eat_if_or(match_fn!(TokenType::End), ErrorType::MissingEnd, start)?
             .location;
         if body.is_empty() {
             return err!(EmptyBlock, start + self.at().location);
@@ -169,10 +183,10 @@ impl Parser {
         let start = self.eat().location;
         let condition = self.parse_expression()?;
         let mut body = vec![];
-        while !matches!(self.at().typ, T::End) {
+        while !matches!(self.at().typ, T::End | T::Eof) {
             body.push(self.parse_statement()?);
         }
-        let end = self.eat_if(match_fn!(T::End), ErrorType::MissingEnd)?;
+        let end = self.eat_if_or(match_fn!(T::End), ErrorType::MissingEnd, start)?;
         if body.is_empty() {
             return err!(EmptyBlock, start + self.at().location);
         }

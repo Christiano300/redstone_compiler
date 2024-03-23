@@ -160,20 +160,29 @@ fn repl() -> io::Result<()> {
         }
 
         let tokens = tokenize(line.as_str());
-        let Ok(tokens) = tokens else {
-            println!("{tokens:#?}");
-            continue;
+        let tokens = match tokens {
+            Ok(tokens) => tokens,
+            Err(err) => {
+                err.pretty_print(&line, "Repl");
+                continue;
+            }
         };
 
         let parser_result = parser.produce_ast(tokens);
 
-        let Ok(ast) = parser_result else {
-            println!("{parser_result:#?}");
-            continue;
+        let ast = match parser_result {
+            Ok(ast) => ast,
+            Err(err) => {
+                err.pretty_print(&line, "Repl");
+                continue;
+            }
         };
         println!("{ast:#?}");
 
         let code = compile_program(ast);
-        println!("{code:#?}");
+        match code {
+            Ok(code) => println!("{code:#?}"),
+            Err(err) => err.pretty_print(&line, "Repl"),
+        }
     }
 }
