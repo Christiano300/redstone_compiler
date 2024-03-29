@@ -549,9 +549,9 @@ impl Compiler {
     }
 
     fn eval_assignment(&mut self, symbol: &str, value: &Expression) -> Res {
-        let slot = self.insert_var(symbol, value.location)?;
-
         self.eval_expr(value)?;
+
+        let slot = self.insert_var(symbol, value.location)?;
 
         instr!(self, SVA, slot);
 

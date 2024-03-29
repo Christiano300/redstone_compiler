@@ -46,27 +46,14 @@ use std::num::NonZeroI16;
 
 use crate::{
     backend::compiler::Compiler,
+    err,
     frontend::{Expression, ExpressionType},
-    instr,
+    instr, modul,
 };
 
-use super::{arg_parse, screen::put_xy, Arg, Call, Error, ErrorType, Res};
+use super::{arg_parse, screen::put_xy, Arg, Call, ErrorType, Res};
 
-pub fn module(compiler: &mut Compiler, call: &Call) -> Res {
-    match call.method_name.as_str() {
-        "set" => set(compiler, call),
-        "set_at" => set_at(compiler, call),
-        "fill" => fill(compiler, call),
-        "fill_xy" => fill_xy(compiler, call),
-        "fill_screen" => fill_screen(compiler, call),
-        "flip" => flip(compiler, call),
-        "color_of" => color_of(compiler, call),
-        _ => Err(Error {
-            typ: Box::new(ErrorType::UnknownMethod(call.method_name.clone())),
-            location: call.location,
-        }),
-    }
-}
+modul!(set set_at fill fill_xy fill_screen flip color_of);
 
 fn fill_screen(compiler: &mut Compiler, call: &Call) -> Res {
     let [color] = arg_parse(compiler, [Arg::Number("color")], call)?;

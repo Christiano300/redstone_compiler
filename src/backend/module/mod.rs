@@ -79,4 +79,16 @@ fn arg_parse<'a, const COUNT: usize>(
     Ok(res)
 }
 
+#[macro_export]
+macro_rules! modul {
+    ( $($method:ident)* ) => {
+        pub fn module(compiler: &mut Compiler, call: &Call) -> Res {
+            match call.method_name.as_str() {
+                $(stringify!($method) => $method(compiler, call),)*
+                _ => err!(ErrorType::UnknownMethod(call.method_name.clone()), call.location)
+            }
+        }
+    }
+}
+
 type Res<T = ()> = Result<T, Error>;

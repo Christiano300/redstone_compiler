@@ -12,8 +12,9 @@ const POINTER: &str = "list_ptr";
 
 use crate::{
     backend::{compiler::Compiler, RamPage, RegisterContents},
+    err,
     frontend::{ExpressionType, Range},
-    instr,
+    instr, modul,
 };
 
 use super::{arg_parse, Arg, Call, Error, ErrorType, Res};
@@ -34,20 +35,7 @@ pub fn init(compiler: &mut Compiler, location: Range) -> Res {
     Ok(())
 }
 
-pub fn module(compiler: &mut Compiler, call: &Call) -> Res {
-    match call.method_name.as_str() {
-        "add" => add(compiler, call),
-        "pop" => pop(compiler, call),
-        "get_pointer" => get_pointer(compiler, call),
-        "set_pointer" => set_pointer(compiler, call),
-        "last" => last(compiler, call),
-        "at" => at(compiler, call),
-        _ => Err(Error {
-            typ: Box::new(ErrorType::UnknownMethod(call.method_name.clone())),
-            location: call.location,
-        }),
-    }
-}
+modul!(add pop get_pointer set_pointer last at);
 
 fn add(compiler: &mut Compiler, call: &Call) -> Res {
     let value = arg_parse(compiler, [Arg::Number("value")], call)?[0];

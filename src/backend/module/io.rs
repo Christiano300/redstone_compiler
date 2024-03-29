@@ -3,22 +3,14 @@ use crate::{
         module::{arg_parse, Arg},
         Compiler,
     },
+    err,
     error::Error,
-    instr,
+    instr, modul,
 };
 
 use super::{Call, ErrorType, Res};
 
-pub fn module(compiler: &mut Compiler, call: &Call) -> Res {
-    match call.method_name.as_str() {
-        "write" => write(compiler, call),
-        "read" => read(compiler, call),
-        _ => Err(Error {
-            typ: Box::new(ErrorType::UnknownMethod(call.method_name.clone())),
-            location: call.location,
-        }),
-    }
-}
+modul!(read write);
 
 fn read(compiler: &mut Compiler, call: &Call) -> Res {
     let args = arg_parse(compiler, [Arg::Constant("Inslot")], call)?;
