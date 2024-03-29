@@ -1,6 +1,7 @@
 mod compiler;
 mod error;
 pub mod instruction;
+#[macro_use]
 mod module;
 mod types;
 

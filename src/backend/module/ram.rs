@@ -5,27 +5,17 @@ ram.copy(from, to) # also return
 */
 
 use crate::{
-    backend::compiler::Compiler,
-    backend::RamPage,
+    backend::{compiler::Compiler, RamPage},
+    err,
     frontend::{Expression, ExpressionType, Range},
-    instr,
+    instr, modul,
 };
 
-use super::{arg_parse, Arg, Call, Error, ErrorType, Res};
+use super::{arg_parse, Arg, Call, ErrorType, Res};
 
-pub fn module(compiler: &mut Compiler, call: &Call) -> Res {
-    match call.method_name.as_str() {
-        "read" => ram_read(compiler, call),
-        "write" => ram_write(compiler, call),
-        "copy" => ram_copy(compiler, call),
-        _ => Err(Error {
-            typ: Box::new(ErrorType::UnknownMethod(call.method_name.clone())),
-            location: call.location,
-        }),
-    }
-}
+modul!(read write copy);
 
-fn ram_copy(compiler: &mut Compiler, call: &Call) -> Res {
+fn copy(compiler: &mut Compiler, call: &Call) -> Res {
     let [from, to] = arg_parse(compiler, [Arg::Number("from"), Arg::Number("to")], call)?;
     put_address(compiler, from, call.location)?;
     instr!(compiler, RR);
@@ -41,7 +31,7 @@ fn ram_copy(compiler: &mut Compiler, call: &Call) -> Res {
     Ok(())
 }
 
-fn ram_write(compiler: &mut Compiler, call: &Call) -> Res {
+fn write(compiler: &mut Compiler, call: &Call) -> Res {
     let [value, address] = arg_parse(
         compiler,
         [Arg::Number("value"), Arg::Number("address")],
@@ -78,7 +68,7 @@ fn ram_write(compiler: &mut Compiler, call: &Call) -> Res {
     Ok(())
 }
 
-fn ram_read(compiler: &mut Compiler, call: &Call) -> Res {
+fn read(compiler: &mut Compiler, call: &Call) -> Res {
     let address = arg_parse(compiler, [Arg::Number("address")], call)?[0];
     put_address(compiler, address, call.location)?;
 
