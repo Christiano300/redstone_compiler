@@ -167,6 +167,7 @@ fn repl() -> io::Result<()> {
                 continue;
             }
         };
+        println!("{tokens:#?}");
 
         let parser_result = parser.produce_ast(tokens);
 
