@@ -177,7 +177,7 @@ pub fn tokenize(source_code: &str) -> Result<Vec<Token>, Error> {
                     next(&mut src, &mut current_location);
                 }
             }
-            '#' => while next(&mut src, &mut current_location) != Some('\n') {},
+            '#' => while !matches!(next(&mut src, &mut current_location), Some('\n') | None) {},
             '\t' => return err!(TabIndent, Range(current_location, current_location)),
             _ => {
                 if char.is_ascii_digit() {
