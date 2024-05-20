@@ -44,6 +44,7 @@ pub struct Call<'a> {
 }
 
 enum Arg {
+    #[allow(dead_code)]
     Number(&'static str),
     Constant(&'static str),
 }
