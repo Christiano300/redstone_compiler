@@ -292,16 +292,10 @@ impl Parser {
             let value = self.parse_i_assignment()?;
             let location = left.location + value.location;
             return Ok(Expression {
-                typ: ExpressionType::Assignment {
+                typ: ExpressionType::IAssignment {
                     symbol: name.clone(),
-                    value: Box::new(Expression {
-                        typ: ExpressionType::BinaryExpr {
-                            left: Box::new(left),
-                            right: Box::new(value),
-                            operator,
-                        },
-                        location,
-                    }),
+                    value: Box::new(value),
+                    operator,
                 },
                 location,
             });

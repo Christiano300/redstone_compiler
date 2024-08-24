@@ -99,9 +99,9 @@ dependencies = [
 
 [[package]]
 name = "table-enum-core"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd8cb8b1b27065336f9b356fe169c544cfdddf44ce8f2ff4f999df1476a0e4e3"
+checksum = "a6585a0b06b80e04831b042c78882047f14f78bce570794c7a900a5a50be0130"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
@@ -111,9 +111,9 @@ dependencies = [
 
 [[package]]
 name = "table-enum-macro"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6e45e03b830923f524100c17255041a7c939fdb633410b448f17d4ef27b90c0"
+checksum = "e5cad9827f3555048157e6af8044535543513cdba3f0dce58f623a4e42f22c64"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
@@ -122,9 +122,9 @@ dependencies = [
 
 [[package]]
 name = "table_enum"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15de668e68f90e49db61d995d18316578a84b6d0a086966975df881e308f55ad"
+checksum = "2243750463ba23841cd61e0ccf5d75ec8dde9dc434f728a68cfe6a312270974c"
 dependencies = [
  "table-enum-macro",
 ]

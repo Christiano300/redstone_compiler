@@ -1,8 +1,5 @@
 use core::panic;
-use std::{
-    fmt::{self, Debug},
-    u8,
-};
+use std::fmt::{self, Debug};
 
 use table_enum::table_enum;
 
