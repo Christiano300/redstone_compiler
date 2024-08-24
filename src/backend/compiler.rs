@@ -455,6 +455,13 @@ impl Compiler {
             ExpressionType::Assignment { symbol, value } => {
                 self.eval_assignment(symbol, value)?;
             }
+            ExpressionType::IAssignment {
+                symbol,
+                value,
+                operator,
+            } => {
+                self.eval_iassignment(symbol, value, *operator)?;
+            }
             ExpressionType::Call { args, function } => self.eval_call(function, args)?,
             ExpressionType::EqExpr { .. } => {
                 return err!(EqInNormalExpr, expr.location);
@@ -555,6 +562,21 @@ impl Compiler {
 
         instr!(self, SVA, slot);
 
+        Ok(())
+    }
+
+    fn eval_iassignment(&mut self, symbol: &String, value: &Expression, operator: Operator) -> Res {
+        self.eval_expr(value)?;
+        self.put_into_b(&Expression {
+            typ: ExpressionType::Identifier(symbol.clone()),
+            location: value.location,
+        })?;
+
+        self.put_op(operator);
+
+        let slot = self.get_var(symbol, value.location)?;
+
+        self.save_to(slot);
         Ok(())
     }
 
@@ -689,7 +711,7 @@ impl Compiler {
         instr!(self, SVA, slot);
     }
 
-    fn is_in_a(&mut self, expr: &Expression) -> bool {
+    fn is_in_a(&self, expr: &Expression) -> bool {
         use ExpressionType as E;
         match &expr.typ {
             E::NumericLiteral(value) => {
@@ -705,7 +727,7 @@ impl Compiler {
         }
     }
 
-    fn is_in_b(&mut self, expr: &Expression) -> bool {
+    fn is_in_b(&self, expr: &Expression) -> bool {
         use ExpressionType as E;
         match &expr.typ {
             E::NumericLiteral(value) => {
