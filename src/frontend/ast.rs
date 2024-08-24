@@ -38,6 +38,11 @@ pub enum ExpressionType {
         symbol: String,
         value: Box<Expression>,
     },
+    IAssignment {
+        symbol: String,
+        value: Box<Expression>,
+        operator: Operator,
+    },
     VarDeclaration {
         symbol: String,
     },
@@ -52,10 +57,19 @@ pub enum ExpressionType {
     Debug,
 }
 
-#[derive(Debug)]
 pub struct Expression {
     pub typ: ExpressionType,
     pub location: Range,
+}
+
+impl std::fmt::Debug for Expression {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if f.alternate() {
+            write!(f, "{:#?} at {:?}", self.typ, self.location)
+        } else {
+            write!(f, "{:?} at {:?}", self.typ, self.location)
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
