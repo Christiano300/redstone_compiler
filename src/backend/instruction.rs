@@ -70,13 +70,13 @@ table_enum! {
     SL("SL", false, true, 5, true, true, true),
     SLE("SLE", false, true, 6, true, true, true),
 
-    SMD("SMD", true, true, 0, true, true, true),
-    SDE("SDE", true, true, 1, true, true, true),
-    SDNE("SDNE", true, true, 2, true, true, true),
-    SDG("SDG", true, true, 3, true, true, true),
-    SDGE("SDGE", true, true, 4, true, true, true),
-    SDL("SDL", true, true, 5, true, true, true),
-    SDLE("SDLE", true, true, 6, true, true, true),
+    SMD("SMD", true, true, 8, true, true, true),
+    SDE("SDE", true, true, 9, true, true, true),
+    SDNE("SDNE", true, true, 10, true, true, true),
+    SDG("SDG", true, true, 11, true, true, true),
+    SDGE("SDGE", true, true, 12, true, true, true),
+    SDL("SDL", true, true, 13, true, true, true),
+    SDLE("SDLE", true, true, 14, true, true, true),
 
 }}
 
@@ -122,10 +122,11 @@ impl InstructionVariant {
 
     #[must_use]
     pub const fn to_byte(&self) -> u8 {
-        (self.jump() as u8) << 6
-            | (self.disc_jump() as u8) << 5
-            | self.id() << 1
-            | (self.instant() as u8)
+        (self.jump() as u8) << 7
+            | (self.disc_jump() as u8) << 6
+            | self.id() << 2
+            | (self.instant() as u8) << 1
+            | (self.alu() as u8)
     }
 }
 
@@ -165,7 +166,7 @@ impl Instruction {
 
     #[must_use]
     pub fn to_bin(&self) -> u16 {
-        u16::from(self.arg.unwrap_or(0)) | u16::from(self.variant.to_byte()) << 8
+        (u16::from(self.arg.unwrap_or(0)) << 8) | u16::from(self.variant.to_byte())
     }
 
     /// Used by Debug and Display
