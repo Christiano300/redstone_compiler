@@ -203,23 +203,28 @@ impl Parser {
         use TokenType as T;
         let start = self.eat().location;
         let token = self.eat();
-        match token.typ {
-            T::Identifier(symbol) => Ok(Expression {
-                typ: ExpressionType::Use(symbol),
-                location: start + token.location,
-            }),
-            T::Number(value) => {
-                if value == 17 {
-                    Ok(Expression {
-                        typ: ExpressionType::Use(" ".to_string()),
-                        location: start + token.location,
-                    })
-                } else {
-                    err!(InvalidModuleName, token.location)
-                }
-            }
-            _ => err!(InvalidModuleName, token.location),
+        let mut imports = vec1::vec1!(match token.typ {
+            T::Identifier(symbol) => Ident {
+                symbol,
+                location: token.location,
+            },
+            _ => return err!(InvalidModuleName, token.location),
+        });
+        while matches!(self.at().typ, T::Dot) {
+            self.eat();
+            let token = self.eat();
+            match token.typ {
+                T::Identifier(symbol) => imports.push(Ident {
+                    symbol,
+                    location: token.location,
+                }),
+                _ => return err!(InvalidModuleName, token.location),
+            };
         }
+        Ok(Expression {
+            location: start + imports.last().location,
+            typ: ExpressionType::Use(imports),
+        })
     }
 
     fn parse_var_declaration(&mut self) -> Res {

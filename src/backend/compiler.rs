@@ -60,7 +60,8 @@ macro_rules! instr {
 ///
 /// assert_eq!(
 ///     compiled,
-///     vec![Instruction::new(InstructionVariant::LAL, Some(5))]
+///     vec![Instruction::new(InstructionVariant::LAL, Some(5), Range(Location(0, 0),
+///     Location(0, 0)))]
 /// );
 /// ```
 pub fn compile_program(ast: Vec<Expression>) -> Res<Vec<Instruction>> {
@@ -252,22 +253,23 @@ impl Compiler {
                 self.insert_inline_var(ident.symbol, value);
                 Ok(())
             }
-            ExpressionType::Use(module) => {
-                if !self.is_root_scope() {
-                    return Err(Error {
-                        typ: Box::new(ErrorType::UseOutsideGlobalScope),
-                        location: line.location,
-                    });
+            ExpressionType::Use(modules) => {
+                for module in modules {
+                    if !self.is_root_scope() {
+                        return Err(Error {
+                            typ: Box::new(ErrorType::UseOutsideGlobalScope),
+                            location: line.location,
+                        });
+                    }
+                    if !exist(&module.symbol) {
+                        return Err(Error {
+                            typ: Box::new(ErrorType::NonexistentModule(module.symbol)),
+                            location: line.location,
+                        });
+                    }
+                    init(&module.symbol, self, line.location)?;
+                    self.modules.insert(module.symbol);
                 }
-                if !exist(&module) {
-                    return Err(Error {
-                        typ: Box::new(ErrorType::NonexistentModule(module)),
-                        location: line.location,
-                    });
-                }
-                init(&module, self, line.location)?;
-                self.modules.insert(module);
-
                 Ok(())
             }
             ExpressionType::VarDeclaration { ident } => {

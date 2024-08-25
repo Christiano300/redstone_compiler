@@ -1,3 +1,5 @@
+use vec1::Vec1;
+
 use super::Range;
 
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
@@ -12,7 +14,7 @@ pub enum ExpressionType {
         ident: Ident,
         value: Box<Expression>,
     },
-    Use(String),
+    Use(Vec1<Ident>),
     Conditional {
         condition: Box<Expression>,
         body: Vec<Expression>,
