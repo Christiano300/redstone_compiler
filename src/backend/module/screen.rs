@@ -42,13 +42,13 @@ fn pixel_operation(compiler: &mut Compiler, call: &Call, op: u8) -> Res {
     let args = arg_parse(compiler, [Arg::Number("x"), Arg::Number("y")], call)?;
 
     write_screenpos(compiler, args[0], args[1], call.location)?;
-    write_screenop(compiler, op);
+    write_screenop(compiler, op, call.location);
     Ok(())
 }
 
 fn screen_operation(compiler: &mut Compiler, call: &Call, op: u8) -> Res {
     let _ = arg_parse(compiler, [], call)?;
-    write_screenop(compiler, op);
+    write_screenop(compiler, op, call.location);
     Ok(())
 }
 
@@ -56,8 +56,8 @@ fn whole_pixel_operation(compiler: &mut Compiler, call: &Call, op: u8) -> Res {
     let args = arg_parse(compiler, [Arg::Number("pos")], call)?;
 
     compiler.eval_expr(args[0])?;
-    instr!(compiler, SVA, SCREENPOS_REG);
-    write_screenop(compiler, op);
+    instr!(compiler, SVA, SCREENPOS_REG, call.location);
+    write_screenop(compiler, op, call.location);
 
     Ok(())
 }
@@ -69,7 +69,7 @@ fn write_screenpos(
     location: Range,
 ) -> Res {
     put_xy(compiler, x, y, location, 8)?;
-    instr!(compiler, SVA, SCREENPOS_REG);
+    instr!(compiler, SVA, SCREENPOS_REG, location);
     Ok(())
 }
 
@@ -85,41 +85,41 @@ pub fn put_xy(
         compiler.try_get_constant(lower),
     ) {
         (Some(upper), Some(lower)) => {
-            compiler.put_a_number(upper << offset | lower);
+            compiler.put_a_number(upper << offset | lower, location);
         }
         (Some(upper), None) => {
             compiler.eval_expr(lower)?;
-            compiler.put_b_number(upper << offset);
-            instr!(compiler, OR);
+            compiler.put_b_number(upper << offset, location);
+            instr!(compiler, OR, location);
         }
         (None, Some(lower)) => {
             compiler.eval_expr(upper)?;
-            instr!(compiler, SUP, offset);
-            compiler.put_b_number(lower);
-            instr!(compiler, OR);
+            instr!(compiler, SUP, offset, location);
+            compiler.put_b_number(lower, location);
+            instr!(compiler, OR, location);
         }
         (None, None) => {
             let simple = Compiler::can_put_into_b(lower);
             if simple {
                 compiler.eval_expr(upper)?;
-                instr!(compiler, SUP, offset);
+                instr!(compiler, SUP, offset, location);
                 compiler.put_into_b(lower)?;
             } else {
                 let temp = compiler.insert_temp_var(location)?;
                 compiler.eval_expr(lower)?;
-                instr!(compiler, SVA, temp);
+                instr!(compiler, SVA, temp, location);
                 compiler.eval_expr(upper)?;
-                instr!(compiler, SUP, offset);
-                instr!(compiler, LB, temp);
+                instr!(compiler, SUP, offset, location);
+                instr!(compiler, LB, temp, location);
                 compiler.cleanup_temp_var(temp);
             }
-            instr!(compiler, OR);
+            instr!(compiler, OR, location);
         }
     }
     Ok(())
 }
 
-fn write_screenop(compiler: &mut Compiler, op: u8) {
-    instr!(compiler, LAL, op);
-    instr!(compiler, SVA, SCREENOP_REG);
+fn write_screenop(compiler: &mut Compiler, op: u8, location: Range) {
+    instr!(compiler, LAL, op, location);
+    instr!(compiler, SVA, SCREENOP_REG, location);
 }

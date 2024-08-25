@@ -18,16 +18,16 @@ modul!(read write copy);
 fn copy(compiler: &mut Compiler, call: &Call) -> Res {
     let [from, to] = arg_parse(compiler, [Arg::Number("from"), Arg::Number("to")], call)?;
     put_address(compiler, from, call.location)?;
-    instr!(compiler, RR);
+    instr!(compiler, RR, call.location);
     if Compiler::can_put_into_b(to) {
         put_address(compiler, to, call.location)?;
     } else {
         let temp = compiler.insert_temp_var(call.location)?;
-        instr!(compiler, SVA, temp);
+        instr!(compiler, SVA, temp, call.location);
         put_address(compiler, to, call.location)?;
-        instr!(compiler, LA, temp);
+        instr!(compiler, LA, temp, call.location);
     }
-    instr!(compiler, RW);
+    instr!(compiler, RW, call.location);
     Ok(())
 }
 
@@ -54,17 +54,22 @@ fn write(compiler: &mut Compiler, call: &Call) -> Res {
             compiler.eval_expr(value)?;
             if let ExpressionType::Assignment { symbol, value: _ } = &value.typ {
                 put_address(compiler, address, call.location)?;
-                instr!(compiler, LA, compiler.get_var(symbol, call.location)?);
+                instr!(
+                    compiler,
+                    LA,
+                    compiler.get_var(symbol, call.location)?,
+                    call.location
+                );
             } else {
                 let temp = compiler.insert_temp_var(call.location)?;
-                instr!(compiler, SVA, temp);
+                instr!(compiler, SVA, temp, call.location);
                 put_address(compiler, address, call.location)?;
-                instr!(compiler, LA, temp);
+                instr!(compiler, LA, temp, call.location);
                 compiler.cleanup_temp_var(temp);
             }
         }
     }
-    instr!(compiler, RW);
+    instr!(compiler, RW, call.location);
     Ok(())
 }
 
@@ -72,7 +77,7 @@ fn read(compiler: &mut Compiler, call: &Call) -> Res {
     let address = arg_parse(compiler, [Arg::Number("address")], call)?[0];
     put_address(compiler, address, call.location)?;
 
-    instr!(compiler, RR);
+    instr!(compiler, RR, call.location);
     Ok(())
 }
 
@@ -80,11 +85,11 @@ fn read(compiler: &mut Compiler, call: &Call) -> Res {
 fn put_address(compiler: &mut Compiler, address: &Expression, location: Range) -> Res {
     if let Some(value) = compiler.try_get_constant(address) {
         if compiler.last_scope().state.ram_page != RamPage::ThisOne((value / 16) as u8) {
-            instr!(compiler, RC);
+            instr!(compiler, RC, location);
         }
-        compiler.put_b_number(value);
+        compiler.put_b_number(value, location);
     } else {
-        instr!(compiler, RC);
+        instr!(compiler, RC, location);
         if Compiler::can_put_into_b(address) {
             compiler.put_into_b(address)?;
         } else if Compiler::can_put_into_a(address) {
@@ -92,7 +97,12 @@ fn put_address(compiler: &mut Compiler, address: &Expression, location: Range) -
             // can_put_into_a is true is must be an assigmnent
             compiler.put_into_a(address)?;
             if let ExpressionType::Assignment { symbol, value: _ } = &address.typ {
-                instr!(compiler, LB, compiler.get_var(symbol, location)?);
+                instr!(
+                    compiler,
+                    LB,
+                    compiler.get_var(symbol, location)?,
+                    address.location
+                );
             }
         } else {
             compiler.eval_expr(address)?;

@@ -132,6 +132,25 @@ fn main() -> io::Result<()> {
         .for_each(|line| bin_string.push_str(line.as_str()));
 
     fs::write(format!("{dir}/{program}.bin"), bin_string)?;
+
+    if has_arg(&mut args, "--loc") {
+        let mut locations = String::new();
+        let mut last = None;
+        assembly.iter().for_each(|instr| {
+            let line_s = (instr.orig_location.0 .0, instr.orig_location.1 .0);
+            if last != Some(line_s) {
+                locations.push_str(&if line_s.0 == line_s.1 {
+                    format!("{}:\n", line_s.0 + 1)
+                } else {
+                    format!("{}-{}:\n", line_s.0 + 1, line_s.1 + 1)
+                });
+                last = Some(line_s);
+            }
+            locations.push_str(&format!("\t{instr}\n"))
+        });
+        fs::write(format!("{dir}/{program}.loc"), locations)?;
+    }
+
     println!(
         "{}\n{} {}",
         "Compilation finished successful".bright_green(),

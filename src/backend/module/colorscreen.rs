@@ -58,14 +58,14 @@ modul!(set set_at fill fill_xy fill_screen flip color_of);
 fn fill_screen(compiler: &mut Compiler, call: &Call) -> Res {
     let [color] = arg_parse(compiler, [Arg::Number("color")], call)?;
     match is_const_color(color) {
-        Some(color) => compiler.put_a_number(color.into()),
+        Some(color) => compiler.put_a_number(color.into(), call.location),
         None => compiler.eval_expr(color)?,
     }
-    compiler.save_to_out(SCREENPOS1_REG);
-    compiler.put_a_number(0x0FFF);
-    compiler.save_to_out(SCREENPOS2_REG);
-    compiler.put_a_number(PAINT);
-    compiler.save_to_out(SCREENOP_REG);
+    compiler.save_to_out(SCREENPOS1_REG, call.location);
+    compiler.put_a_number(0x0FFF, call.location);
+    compiler.save_to_out(SCREENPOS2_REG, call.location);
+    compiler.put_a_number(PAINT, call.location);
+    compiler.save_to_out(SCREENOP_REG, call.location);
 
     Ok(())
 }
@@ -77,10 +77,10 @@ fn set_at(compiler: &mut Compiler, call: &Call) -> Res {
         call,
     )?;
     put_xy_color(compiler, color, x, y, call)?;
-    compiler.save_to_out(SCREENPOS1_REG);
-    compiler.save_to_out(SCREENPOS2_REG);
-    compiler.put_a_number(PAINT);
-    compiler.save_to_out(SCREENOP_REG);
+    compiler.save_to_out(SCREENPOS1_REG, call.location);
+    compiler.save_to_out(SCREENPOS2_REG, call.location);
+    compiler.put_a_number(PAINT, call.location);
+    compiler.save_to_out(SCREENOP_REG, call.location);
 
     Ok(())
 }
@@ -95,18 +95,18 @@ fn put_xy_color(
     match is_const_color(color) {
         Some(color) => {
             put_xy(compiler, x, y, call.location, 6)?;
-            compiler.put_b_number(color.into());
-            instr!(compiler, OR);
+            compiler.put_b_number(color.into(), call.location);
+            instr!(compiler, OR, call.location);
         }
         None => {
             if Compiler::can_put_into_b(color) {
                 put_xy(compiler, x, y, call.location, 6)?;
                 compiler.put_into_b(color)?;
-                instr!(compiler, OR);
+                instr!(compiler, OR, call.location);
             } else if is_color_of_call(&color.typ) {
                 put_xy(compiler, x, y, call.location, 6)?;
                 compiler.eval_expr(color)?;
-                instr!(compiler, OR);
+                instr!(compiler, OR, call.location);
             } else if compiler.try_get_constant(x).is_some()
                 && compiler.try_get_constant(y).is_some()
             {
@@ -116,9 +116,9 @@ fn put_xy_color(
             } else {
                 put_xy(compiler, x, y, call.location, 6)?;
                 let temp = compiler.insert_temp_var(call.location)?;
-                compiler.save_to(temp);
+                compiler.save_to(temp, call.location);
                 compiler.eval_expr(color)?;
-                instr!(compiler, LB, temp);
+                instr!(compiler, LB, temp, call.location);
                 compiler.cleanup_temp_var(temp);
             }
         }
@@ -128,8 +128,8 @@ fn put_xy_color(
 
 fn flip(compiler: &mut Compiler, call: &Call) -> Res {
     let _ = arg_parse(compiler, [], call)?;
-    compiler.put_a_number(FLIP);
-    compiler.save_to_out(SCREENOP_REG);
+    compiler.put_a_number(FLIP, call.location);
+    compiler.save_to_out(SCREENOP_REG, call.location);
     Ok(())
 }
 
@@ -141,10 +141,10 @@ fn set(compiler: &mut Compiler, call: &Call) -> Res {
     )?;
 
     load_position_color(compiler, position, color, call)?;
-    compiler.save_to_out(SCREENPOS1_REG);
-    compiler.save_to_out(SCREENPOS2_REG);
-    compiler.put_a_number(PAINT);
-    compiler.save_to_out(SCREENOP_REG);
+    compiler.save_to_out(SCREENPOS1_REG, call.location);
+    compiler.save_to_out(SCREENPOS2_REG, call.location);
+    compiler.put_a_number(PAINT, call.location);
+    compiler.save_to_out(SCREENOP_REG, call.location);
     Ok(())
 }
 
@@ -155,11 +155,11 @@ fn fill(compiler: &mut Compiler, call: &Call) -> Res {
         call,
     )?;
     load_position_color(compiler, from, color, call)?;
-    compiler.save_to_out(SCREENPOS1_REG);
+    compiler.save_to_out(SCREENPOS1_REG, call.location);
     compiler.eval_expr(to)?;
-    compiler.save_to_out(SCREENPOS2_REG);
-    compiler.put_a_number(PAINT);
-    compiler.save_to_out(SCREENOP_REG);
+    compiler.save_to_out(SCREENPOS2_REG, call.location);
+    compiler.put_a_number(PAINT, call.location);
+    compiler.save_to_out(SCREENOP_REG, call.location);
     Ok(())
 }
 
@@ -177,11 +177,11 @@ fn fill_xy(compiler: &mut Compiler, call: &Call) -> Res {
     )?;
 
     put_xy_color(compiler, color, x1, y1, call)?;
-    compiler.save_to_out(SCREENPOS1_REG);
+    compiler.save_to_out(SCREENPOS1_REG, call.location);
     put_xy(compiler, x2, y2, call.location, 6)?;
-    compiler.save_to_out(SCREENPOS2_REG);
-    compiler.put_a_number(PAINT);
-    compiler.save_to_out(SCREENOP_REG);
+    compiler.save_to_out(SCREENPOS2_REG, call.location);
+    compiler.put_a_number(PAINT, call.location);
+    compiler.save_to_out(SCREENOP_REG, call.location);
     Ok(())
 }
 
@@ -195,23 +195,23 @@ fn load_position_color(
         (None, None) => {
             let temp = compiler.insert_temp_var(call.location)?;
             compiler.eval_expr(color)?;
-            compiler.save_to(temp);
+            compiler.save_to(temp, call.location);
             compiler.eval_expr(position)?;
-            instr!(compiler, LB, temp);
+            instr!(compiler, LB, temp, call.location);
             compiler.cleanup_temp_var(temp);
-            instr!(compiler, OR);
+            instr!(compiler, OR, call.location);
         }
         (None, Some(color)) => {
             compiler.eval_expr(position)?;
-            compiler.put_b_number(color.into());
-            instr!(compiler, OR);
+            compiler.put_b_number(color.into(), call.location);
+            instr!(compiler, OR, call.location);
         }
         (Some(pos), None) => {
             compiler.eval_expr(color)?;
-            compiler.put_b_number(pos);
-            instr!(compiler, OR);
+            compiler.put_b_number(pos, call.location);
+            instr!(compiler, OR, call.location);
         }
-        (Some(pos), Some(color)) => compiler.put_a_number(pos | i16::from(color)),
+        (Some(pos), Some(color)) => compiler.put_a_number(pos | i16::from(color), call.location),
     }
     Ok(())
 }
@@ -220,7 +220,7 @@ fn color_of(compiler: &mut Compiler, call: &Call) -> Res {
     let color = arg_parse(compiler, [Arg::Number("color")], call)?[0];
 
     match compiler.try_get_constant(color) {
-        Some(number) => compiler.put_a_number(number),
+        Some(number) => compiler.put_a_number(number, call.location),
         None => compiler.eval_expr(color)?,
     }
     Ok(())

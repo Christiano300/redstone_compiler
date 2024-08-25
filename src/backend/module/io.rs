@@ -27,7 +27,7 @@ fn read(compiler: &mut Compiler, call: &Call) -> Res {
 
     let slot: u8 = slot.try_into().unwrap_or(0);
 
-    instr!(compiler, LA, slot + 32);
+    instr!(compiler, LA, slot + 32, call.location);
 
     Ok(())
 }
@@ -53,7 +53,7 @@ fn write(compiler: &mut Compiler, call: &Call) -> Res {
 
     compiler.eval_expr(&call.args[0])?;
 
-    instr!(compiler, SVA, slot + 32);
+    instr!(compiler, SVA, slot + 32, call.location);
 
     Ok(())
 }

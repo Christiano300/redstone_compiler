@@ -42,13 +42,13 @@ fn add(compiler: &mut Compiler, call: &Call) -> Res {
     let pointer = *compiler.get_module_state::<u8>(POINTER).unwrap();
     compiler.eval_expr(value)?;
     if compiler.last_scope().state.b != RegisterContents::Variable(pointer) {
-        instr!(compiler, LB, pointer);
+        instr!(compiler, LB, pointer, call.location);
     }
-    instr!(compiler, RC);
-    instr!(compiler, RW);
-    instr!(compiler, LAL, 1);
-    instr!(compiler, ADD);
-    instr!(compiler, SVA, pointer);
+    instr!(compiler, RC, call.location);
+    instr!(compiler, RW, call.location);
+    instr!(compiler, LAL, 1, call.location);
+    instr!(compiler, ADD, call.location);
+    instr!(compiler, SVA, pointer, call.location);
     Ok(())
 }
 
@@ -58,13 +58,13 @@ fn pop(compiler: &mut Compiler, call: &Call) -> Res {
     let pointer = *compiler.get_module_state::<u8>(POINTER).unwrap();
 
     if compiler.last_scope().state.a != RegisterContents::Variable(pointer) {
-        instr!(compiler, LA, pointer);
+        instr!(compiler, LA, pointer, call.location);
     }
-    instr!(compiler, LBL, 1);
-    instr!(compiler, SUB);
-    instr!(compiler, SVA, pointer);
-    instr!(compiler, RC);
-    instr!(compiler, RR);
+    instr!(compiler, LBL, 1, call.location);
+    instr!(compiler, SUB, call.location);
+    instr!(compiler, SVA, pointer, call.location);
+    instr!(compiler, RC, call.location);
+    instr!(compiler, RR, call.location);
 
     Ok(())
 }
@@ -92,12 +92,12 @@ fn last(compiler: &mut Compiler, call: &Call) -> Res {
     let pointer = *compiler.get_module_state(POINTER).unwrap();
 
     if compiler.last_scope().state.a != RegisterContents::Variable(pointer) {
-        instr!(compiler, LA, pointer);
+        instr!(compiler, LA, pointer, call.location);
     }
-    instr!(compiler, LBL, 1);
-    instr!(compiler, SUB);
-    instr!(compiler, RC);
-    instr!(compiler, RR);
+    instr!(compiler, LBL, 1, call.location);
+    instr!(compiler, SUB, call.location);
+    instr!(compiler, RC, call.location);
+    instr!(compiler, RR, call.location);
 
     Ok(())
 }
@@ -110,7 +110,12 @@ fn at(compiler: &mut Compiler, call: &Call) -> Res {
     } else {
         compiler.eval_expr(address)?;
         if let ExpressionType::Assignment { symbol, value: _ } = &address.typ {
-            instr!(compiler, LB, compiler.get_var(symbol, location)?);
+            instr!(
+                compiler,
+                LB,
+                compiler.get_var(symbol, location)?,
+                address.location
+            );
         } else {
             compiler.switch(location)?;
         }
@@ -119,10 +124,10 @@ fn at(compiler: &mut Compiler, call: &Call) -> Res {
     match compiler.try_get_constant(address) {
         Some(value)
             if compiler.last_scope().state.ram_page == RamPage::ThisOne((value / 16) as u8) => {}
-        _ => instr!(compiler, RC),
+        _ => instr!(compiler, RC, call.location),
     }
 
-    instr!(compiler, RR);
+    instr!(compiler, RR, call.location);
 
     Ok(())
 }

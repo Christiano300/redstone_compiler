@@ -134,6 +134,7 @@ impl InstructionVariant {
 pub struct Instruction {
     pub variant: InstructionVariant,
     pub arg: Option<u8>,
+    pub orig_location: Range,
 }
 
 impl fmt::Display for Instruction {
@@ -148,7 +149,7 @@ impl Debug for Instruction {
     }
 }
 
-use crate::frontend::EqualityOperator;
+use crate::frontend::{EqualityOperator, Range};
 
 use super::{ComputerState, RamPage, RegisterContents};
 
@@ -159,9 +160,13 @@ impl Instruction {
     ///
     /// Panics if an invalid number of args is supplied
     #[must_use]
-    pub const fn new(variant: InstructionVariant, arg: Option<u8>) -> Self {
+    pub const fn new(variant: InstructionVariant, arg: Option<u8>, orig_location: Range) -> Self {
         assert!(variant.has_arg() == arg.is_some(),);
-        Self { variant, arg }
+        Self {
+            variant,
+            arg,
+            orig_location,
+        }
     }
 
     #[must_use]
