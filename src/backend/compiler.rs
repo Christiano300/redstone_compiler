@@ -10,7 +10,7 @@ use crate::{
     backend::{module::Call, ComputerState, Instr, RegisterContents, Scope},
     err,
     error::Error,
-    frontend::{EqualityOperator, Expression, ExpressionType, Operator, Range},
+    frontend::{EqualityOperator, Expression, ExpressionType, Ident, Operator, Range},
 };
 
 use super::{
@@ -20,20 +20,22 @@ use super::{
 
 const VAR_SLOTS: usize = 32;
 
-type Res<T = ()> = Result<T, Error>;
+type Res<T = (), E = Error> = Result<T, E>;
 
 #[macro_export]
 macro_rules! instr {
-    ($self:ident, $variant:ident, $arg:expr) => {
+    ($self:ident, $variant:ident, $arg:expr, $loc:expr) => {
         $self.push_instr($crate::backend::Instruction::new(
             $crate::backend::InstructionVariant::$variant,
             Some($arg),
+            $loc,
         ))
     };
-    ($self:ident, $variant:ident) => {
+    ($self:ident, $variant:ident, $loc:expr) => {
         $self.push_instr($crate::backend::Instruction::new(
             $crate::backend::InstructionVariant::$variant,
             None,
+            $loc,
         ))
     };
 }
@@ -58,10 +60,11 @@ macro_rules! instr {
 ///
 /// assert_eq!(
 ///     compiled,
-///     vec![Instruction::new(InstructionVariant::LAL, Some(5))]
+///     vec![Instruction::new(InstructionVariant::LAL, Some(5), Range(Location(0, 0),
+///     Location(0, 0)))]
 /// );
 /// ```
-pub fn compile_program(ast: Vec<Expression>) -> Res<Vec<Instruction>> {
+pub fn compile_program(ast: Vec<Expression>) -> Res<Vec<Instruction>, Vec<Error>> {
     let compiler = Compiler::new();
     compiler.generate_assembly(ast)
 }
@@ -227,9 +230,14 @@ impl Compiler {
         self.scopes.len() == 1
     }
 
-    fn generate_assembly(mut self, body: Vec<Expression>) -> Res<Vec<Instruction>> {
-        body.into_iter()
-            .try_for_each(|line| self.eval_statement(line))?;
+    fn generate_assembly(mut self, body: Vec<Expression>) -> Res<Vec<Instruction>, Vec<Error>> {
+        let errors = body
+            .into_iter()
+            .filter_map(|line| self.eval_statement(line).err())
+            .collect::<Vec<_>>();
+        if !errors.is_empty() {
+            return Err(errors);
+        }
 
         Ok(self.get_instructions())
     }
@@ -242,34 +250,35 @@ impl Compiler {
 
     fn eval_statement(&mut self, line: Expression) -> Res {
         match line.typ {
-            ExpressionType::InlineDeclaration { symbol, value } => {
+            ExpressionType::InlineDeclaration { ident, value } => {
                 let value = self.try_eval_const(&value).map_err(|loc| Error {
                     typ: Box::new(ErrorType::ForbiddenInline),
                     location: loc,
                 })?;
-                self.insert_inline_var(symbol, value);
+                self.insert_inline_var(ident.symbol, value);
                 Ok(())
             }
-            ExpressionType::Use(module) => {
-                if !self.is_root_scope() {
-                    return Err(Error {
-                        typ: Box::new(ErrorType::UseOutsideGlobalScope),
-                        location: line.location,
-                    });
+            ExpressionType::Use(modules) => {
+                for module in modules {
+                    if !self.is_root_scope() {
+                        return Err(Error {
+                            typ: Box::new(ErrorType::UseOutsideGlobalScope),
+                            location: line.location,
+                        });
+                    }
+                    if !exist(&module.symbol) {
+                        return Err(Error {
+                            typ: Box::new(ErrorType::NonexistentModule(module.symbol)),
+                            location: line.location,
+                        });
+                    }
+                    init(&module.symbol, self, line.location)?;
+                    self.modules.insert(module.symbol);
                 }
-                if !exist(&module) {
-                    return Err(Error {
-                        typ: Box::new(ErrorType::NonexistentModule(module)),
-                        location: line.location,
-                    });
-                }
-                init(&module, self, line.location)?;
-                self.modules.insert(module);
-
                 Ok(())
             }
-            ExpressionType::VarDeclaration { symbol } => {
-                self.insert_var(symbol.as_str(), line.location)?;
+            ExpressionType::VarDeclaration { ident } => {
+                self.insert_var(&ident.symbol, line.location)?;
                 Ok(())
             }
             ExpressionType::Pass => Ok(()),
@@ -281,7 +290,7 @@ impl Compiler {
                 self.push_scope(body, ComputerState::default())?;
                 self.pop_scope();
 
-                instr!(self, JMP, id);
+                instr!(self, JMP, id, line.location);
 
                 Ok(())
             }
@@ -291,7 +300,7 @@ impl Compiler {
                 let start_id = self.insert_jump_mark();
                 let end_id = self.insert_jump_mark();
 
-                self.put_comparison((&left, &right, operator.opposite()), end_id)?;
+                self.put_comparison((&left, &right, operator.opposite()), line.location, end_id)?;
 
                 let start = Self::scope_len(&self.scopes.first().instructions);
 
@@ -299,7 +308,7 @@ impl Compiler {
 
                 self.push_scope(body, self.last_scope().state)?;
 
-                self.put_comparison((&left, &right, operator), start_id)?;
+                self.put_comparison((&left, &right, operator), line.location, start_id)?;
 
                 self.pop_scope();
                 let end = Self::scope_len(&self.scopes.first().instructions);
@@ -326,17 +335,18 @@ impl Compiler {
         paths: Vec<(Expression, Vec<Expression>)>,
         alternate: Option<Vec<Expression>>,
     ) -> Result<Result<(), Error>, Error> {
+        let location = condition.location;
         let (left, right, operator) = eval_condition(condition)?;
         let end_id = self.insert_jump_mark();
         let mut next_mark_id = self.insert_jump_mark();
 
-        self.put_comparison((&left, &right, operator.opposite()), next_mark_id)?;
+        self.put_comparison((&left, &right, operator.opposite()), location, next_mark_id)?;
 
         let mut last_state = self.last_scope().state;
 
         self.push_scope(body, last_state)?;
         if !paths.is_empty() || alternate.is_some() {
-            instr!(self, JMP, end_id);
+            instr!(self, JMP, end_id, location);
         }
         self.pop_scope();
         self.jump_marks.insert(
@@ -346,18 +356,19 @@ impl Compiler {
         let path_len = paths.len();
         paths.into_iter().enumerate().try_for_each(|path| {
             let (index, (condition, body)) = path;
+            let location = condition.location;
             let (left, right, operator) = eval_condition(condition)?;
 
             next_mark_id = self.insert_jump_mark();
 
-            self.put_comparison((&left, &right, operator.opposite()), next_mark_id)?;
+            self.put_comparison((&left, &right, operator.opposite()), location, next_mark_id)?;
 
             last_state = self.last_scope().state;
 
             self.push_scope(body, last_state)?;
 
             if index != path_len - 1 || alternate.is_some() {
-                instr!(self, JMP, end_id);
+                instr!(self, JMP, end_id, location);
             }
 
             self.pop_scope();
@@ -398,6 +409,7 @@ impl Compiler {
     fn put_comparison(
         &mut self,
         condition: (&Expression, &Expression, EqualityOperator),
+        location: Range,
         jump_to: u8,
     ) -> Res {
         let (left, right, operator) = condition;
@@ -409,6 +421,7 @@ impl Compiler {
         self.push_instr(Instruction::new(
             InstructionVariant::from_op(op),
             Some(jump_to),
+            location,
         ));
         Ok(())
     }
@@ -451,22 +464,22 @@ impl Compiler {
                 left,
                 right,
                 operator,
-            } => self.eval_binary_expr(left, right, *operator)?,
-            ExpressionType::Assignment { symbol, value } => {
-                self.eval_assignment(symbol, value)?;
+            } => self.eval_binary_expr(left, right, *operator, expr.location)?,
+            ExpressionType::Assignment { ident, value } => {
+                self.eval_assignment(&ident.symbol, value)?;
             }
             ExpressionType::IAssignment {
-                symbol,
+                ident,
                 value,
                 operator,
             } => {
-                self.eval_iassignment(symbol, value, *operator)?;
+                self.eval_iassignment(ident, value, *operator)?;
             }
             ExpressionType::Call { args, function } => self.eval_call(function, args)?,
             ExpressionType::EqExpr { .. } => {
                 return err!(EqInNormalExpr, expr.location);
             }
-            ExpressionType::Debug => instr!(self, LAL, 17),
+            ExpressionType::Debug => instr!(self, LAL, 17, expr.location),
             ExpressionType::Member { .. } => return err!(NoConstants, expr.location),
             _ => todo!("unsupported expression: {:?}", expr),
         }
@@ -478,7 +491,7 @@ impl Compiler {
         use ExpressionType as E;
         match &expr.typ {
             E::NumericLiteral(..) | E::Identifier(..) => true,
-            E::Assignment { symbol: _, value } => Self::can_put_into_a(value),
+            E::Assignment { ident: _, value } => Self::can_put_into_a(value),
             _ => false,
         }
     }
@@ -494,10 +507,11 @@ impl Compiler {
         left: &Expression,
         right: &Expression,
         operator: Operator,
+        location: Range,
     ) -> Res {
         self.put_ab(left, right, operator.is_commutative())?;
 
-        self.put_op(operator);
+        self.put_op(operator, location);
         Ok(())
     }
 
@@ -526,8 +540,13 @@ impl Compiler {
                     swapped = true;
                 } else {
                     // if we just saved a variable we use it to switch
-                    if let ExpressionType::Assignment { symbol, value: _ } = &right.typ {
-                        instr!(self, LB, self.get_var(symbol, Range::default()).unwrap());
+                    if let ExpressionType::Assignment { ident, value: _ } = &right.typ {
+                        instr!(
+                            self,
+                            LB,
+                            self.get_var(&ident.symbol, Range::default()).unwrap(),
+                            right.location
+                        );
                     } else {
                         self.switch(left.location)?;
                     }
@@ -540,14 +559,19 @@ impl Compiler {
             }
             (false, false) => {
                 self.eval_expr(right)?;
-                if let ExpressionType::Assignment { symbol, value: _ } = &right.typ {
+                if let ExpressionType::Assignment { ident, value: _ } = &right.typ {
                     self.eval_expr(left)?;
-                    instr!(self, LB, self.get_var(symbol, Range::default()).unwrap());
+                    instr!(
+                        self,
+                        LB,
+                        self.get_var(&ident.symbol, Range::default()).unwrap(),
+                        right.location
+                    );
                 } else {
                     let temp = self.insert_temp_var(left.location)?;
-                    instr!(self, SVA, temp);
+                    instr!(self, SVA, temp, left.location);
                     self.eval_expr(left)?;
-                    instr!(self, LB, temp);
+                    instr!(self, LB, temp, left.location);
                     self.cleanup_temp_var(temp);
                 }
             }
@@ -560,35 +584,35 @@ impl Compiler {
 
         let slot = self.insert_var(symbol, value.location)?;
 
-        instr!(self, SVA, slot);
+        instr!(self, SVA, slot, value.location);
 
         Ok(())
     }
 
-    fn eval_iassignment(&mut self, symbol: &String, value: &Expression, operator: Operator) -> Res {
+    fn eval_iassignment(&mut self, ident: &Ident, value: &Expression, operator: Operator) -> Res {
         self.eval_expr(value)?;
         self.put_into_b(&Expression {
-            typ: ExpressionType::Identifier(symbol.clone()),
+            typ: ExpressionType::Identifier(ident.symbol.clone()),
             location: value.location,
         })?;
 
-        self.put_op(operator);
+        self.put_op(operator, value.location);
 
-        let slot = self.get_var(symbol, value.location)?;
+        let slot = self.get_var(&ident.symbol, value.location)?;
 
-        self.save_to(slot);
+        self.save_to(slot, value.location);
         Ok(())
     }
 
-    fn put_op(&mut self, operator: Operator) {
+    fn put_op(&mut self, operator: Operator, location: Range) {
         use Operator as O;
         match operator {
-            O::Plus => instr!(self, ADD),
-            O::Minus => instr!(self, SUB),
-            O::Mult => instr!(self, MUL),
-            O::And => instr!(self, AND),
-            O::Or => instr!(self, OR),
-            O::Xor => instr!(self, XOR),
+            O::Plus => instr!(self, ADD, location),
+            O::Minus => instr!(self, SUB, location),
+            O::Mult => instr!(self, MUL, location),
+            O::And => instr!(self, AND, location),
+            O::Or => instr!(self, OR, location),
+            O::Xor => instr!(self, XOR, location),
         }
     }
 
@@ -613,8 +637,8 @@ impl Compiler {
     /// if there are too many variables
     pub fn switch(&mut self, location: Range) -> Res {
         let temp = self.insert_temp_var(location)?;
-        self.save_to(temp);
-        instr!(self, LB, temp);
+        self.save_to(temp, location);
+        instr!(self, LB, temp, location);
         self.cleanup_temp_var(temp);
         Ok(())
     }
@@ -628,11 +652,11 @@ impl Compiler {
         use ExpressionType as E;
         match &expr.typ {
             E::NumericLiteral(value) => {
-                self.put_a_number(*value);
+                self.put_a_number(*value, expr.location);
             }
             E::Identifier(symbol) => {
                 if let Ok(value) = self.get_inline_var(symbol, expr.location) {
-                    self.put_a_number(value);
+                    self.put_a_number(value, expr.location);
                 } else {
                     let var = self.get_var(symbol, expr.location)?;
                     if let RegisterContents::Variable(v) = self.last_scope().state.a {
@@ -640,7 +664,7 @@ impl Compiler {
                             return Ok(());
                         }
                     }
-                    instr!(self, LA, var);
+                    instr!(self, LA, var, expr.location);
                 }
             }
             E::Assignment { .. } => {
@@ -674,11 +698,11 @@ impl Compiler {
         use ExpressionType as E;
         match &expr.typ {
             E::NumericLiteral(value) => {
-                self.put_b_number(*value);
+                self.put_b_number(*value, expr.location);
             }
             E::Identifier(symbol) => {
                 if let Ok(value) = self.get_inline_var(symbol, expr.location) {
-                    self.put_b_number(value);
+                    self.put_b_number(value, expr.location);
                 } else {
                     let var = self.get_var(symbol, expr.location)?;
                     if let RegisterContents::Variable(v) = self.last_scope().state.b {
@@ -686,7 +710,7 @@ impl Compiler {
                             return Ok(());
                         }
                     }
-                    instr!(self, LB, var);
+                    instr!(self, LB, var, expr.location);
                 }
             }
             _ => {
@@ -702,13 +726,13 @@ impl Compiler {
     }
 
     #[inline]
-    pub fn save_to_out(&mut self, port: u8) {
-        self.save_to(port + 32);
+    pub fn save_to_out(&mut self, port: u8, location: Range) {
+        self.save_to(port + 32, location);
     }
 
     #[inline]
-    pub fn save_to(&mut self, slot: u8) {
-        instr!(self, SVA, slot);
+    pub fn save_to(&mut self, slot: u8, location: Range) {
+        instr!(self, SVA, slot, location);
     }
 
     fn is_in_a(&self, expr: &Expression) -> bool {
@@ -743,25 +767,25 @@ impl Compiler {
         }
     }
 
-    pub fn put_a_number(&mut self, value: i16) {
+    pub fn put_a_number(&mut self, value: i16, location: Range) {
         if self.last_scope().state.a == RegisterContents::Number(value) {
             return;
         }
         let bytes = value.to_le_bytes();
-        instr!(self, LAL, bytes[0]);
+        instr!(self, LAL, bytes[0], location);
         if bytes[1] != 0 {
-            instr!(self, LAH, bytes[1]);
+            instr!(self, LAH, bytes[1], location);
         }
     }
 
-    pub fn put_b_number(&mut self, value: i16) {
+    pub fn put_b_number(&mut self, value: i16, location: Range) {
         if self.last_scope().state.b == RegisterContents::Number(value) {
             return;
         }
         let bytes = value.to_le_bytes();
-        instr!(self, LBL, bytes[0]);
+        instr!(self, LBL, bytes[0], location);
         if bytes[1] != 0 {
-            instr!(self, LBH, bytes[1]);
+            instr!(self, LBH, bytes[1], location);
         }
     }
 
@@ -800,7 +824,7 @@ impl Compiler {
             module,
             self,
             &Call {
-                method_name: method,
+                method_name: &method.symbol,
                 args,
                 location: function.location,
             },
@@ -836,6 +860,7 @@ impl Compiler {
                 let instr = instructions
                     .get_mut(i)
                     .expect("Tried getting invalid instruction in insert_disc_jumps loop");
+                let location = instr.orig_location;
                 if instr.variant.is_jump() && !instr.variant.disc_jump() {
                     let mark = instr.arg.expect("Jump instruction doesn't have arg");
                     let current_page = i / 64;
@@ -844,7 +869,7 @@ impl Compiler {
                         instr.variant = instr.variant.to_disc_jump();
                         instructions.insert(
                             i,
-                            Instruction::new(InstructionVariant::LCL, Some(jump_page)),
+                            Instruction::new(InstructionVariant::LCL, Some(jump_page), location),
                         );
                         Self::move_jump_marks(jump_marks, i as u8, 1);
                         i += 1;

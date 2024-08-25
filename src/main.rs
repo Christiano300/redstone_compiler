@@ -100,8 +100,9 @@ fn main() -> io::Result<()> {
     let mut parser = Parser::new();
     let ast = match parser.produce_ast(tokens) {
         Ok(ast) => ast,
-        Err(err) => {
-            err.pretty_print(code.as_str(), path.as_str());
+        Err(errs) => {
+            errs.into_iter()
+                .for_each(|err| err.pretty_print(code.as_str(), path.as_str()));
             return Ok(());
         }
     };
@@ -111,8 +112,10 @@ fn main() -> io::Result<()> {
 
     let assembly = match compile_program(ast) {
         Ok(assembly) => assembly,
-        Err(err) => {
-            err.pretty_print(code.as_str(), path.as_str());
+        Err(errs) => {
+            for err in errs {
+                err.pretty_print(code.as_str(), path.as_str());
+            }
             return Ok(());
         }
     };
@@ -132,6 +135,25 @@ fn main() -> io::Result<()> {
         .for_each(|line| bin_string.push_str(line.as_str()));
 
     fs::write(format!("{dir}/{program}.bin"), bin_string)?;
+
+    if has_arg(&mut args, "--loc") {
+        let mut locations = String::new();
+        let mut last = None;
+        for instr in &assembly {
+            let line_s = (instr.orig_location.0 .0, instr.orig_location.1 .0);
+            if last != Some(line_s) {
+                locations.push_str(&if line_s.0 == line_s.1 {
+                    format!("{}:\n", line_s.0 + 1)
+                } else {
+                    format!("{}-{}:\n", line_s.0 + 1, line_s.1 + 1)
+                });
+                last = Some(line_s);
+            }
+            locations.push_str(&format!("\t{instr}\n"));
+        }
+        fs::write(format!("{dir}/{program}.loc"), locations)?;
+    }
+
     println!(
         "{}\n{} {}",
         "Compilation finished successful".bright_green(),
@@ -173,8 +195,9 @@ fn repl() -> io::Result<()> {
 
         let ast = match parser_result {
             Ok(ast) => ast,
-            Err(err) => {
-                err.pretty_print(&line, "Repl");
+            Err(errs) => {
+                errs.into_iter()
+                    .for_each(|err| err.pretty_print(&line, "Repl"));
                 continue;
             }
         };
@@ -183,7 +206,9 @@ fn repl() -> io::Result<()> {
         let code = compile_program(ast);
         match code {
             Ok(code) => println!("{code:#?}"),
-            Err(err) => err.pretty_print(&line, "Repl"),
+            Err(err) => err.into_iter().for_each(|err| {
+                err.pretty_print(&line, "Repl");
+            }),
         }
     }
 }

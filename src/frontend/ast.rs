@@ -1,12 +1,20 @@
+use vec1::Vec1;
+
 use super::Range;
+
+#[derive(Debug, Default, PartialEq, Eq, Clone)]
+pub struct Ident {
+    pub symbol: String,
+    pub location: Range,
+}
 
 #[derive(Debug, Default)]
 pub enum ExpressionType {
     InlineDeclaration {
-        symbol: String,
+        ident: Ident,
         value: Box<Expression>,
     },
-    Use(String),
+    Use(Vec1<Ident>),
     Conditional {
         condition: Box<Expression>,
         body: Vec<Expression>,
@@ -35,20 +43,20 @@ pub enum ExpressionType {
     Identifier(String),
     NumericLiteral(i16),
     Assignment {
-        symbol: String,
+        ident: Ident,
         value: Box<Expression>,
     },
     IAssignment {
-        symbol: String,
+        ident: Ident,
         value: Box<Expression>,
         operator: Operator,
     },
     VarDeclaration {
-        symbol: String,
+        ident: Ident,
     },
     Member {
         object: Box<Expression>,
-        property: String,
+        property: Ident,
     },
     Call {
         args: Vec<Expression>,

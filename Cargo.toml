@@ -1,6 +1,6 @@
 [package]
 name = "redstone_compiler"
-version = "0.0.9"
+version = "0.1.0"
 repository = "https://github.com/Christiano300/redstone_compiler"
 edition = "2021"
 

@@ -6,14 +6,14 @@ use crate::{
     frontend::{ErrorType, Range},
 };
 
-use super::{EqualityOperator, Expression, ExpressionType, Operator, Token, TokenType};
+use super::{EqualityOperator, Expression, ExpressionType, Ident, Operator, Token, TokenType};
 
 #[derive(Default)]
 pub struct Parser {
     tokens: VecDeque<Token>,
 }
 
-type Res<T = Expression> = Result<T, Error>;
+type Res<T = Expression, E = Error> = Result<T, E>;
 
 macro_rules! match_fn {
     ($pattern:pat $(if $guard:expr)? $(,)?) => {
@@ -71,13 +71,20 @@ impl Parser {
     /// # Errors
     ///
     /// when any error occurs
-    pub fn produce_ast(&mut self, tokens: Vec<Token>) -> Res<Vec<Expression>> {
+    pub fn produce_ast(&mut self, tokens: Vec<Token>) -> Res<Vec<Expression>, Vec<Error>> {
         self.tokens = VecDeque::from(tokens);
 
         let mut body = vec![];
+        let mut errors = vec![];
 
         while !self.tokens.is_empty() && self.at().typ != TokenType::Eof {
-            body.push(self.parse_statement()?);
+            match self.parse_statement() {
+                Ok(expr) => body.push(expr),
+                Err(err) => errors.push(err),
+            }
+        }
+        if !errors.is_empty() {
+            return Err(errors);
         }
         Ok(body)
     }
@@ -203,23 +210,28 @@ impl Parser {
         use TokenType as T;
         let start = self.eat().location;
         let token = self.eat();
-        match token.typ {
-            T::Identifier(symbol) => Ok(Expression {
-                typ: ExpressionType::Use(symbol),
-                location: start + token.location,
-            }),
-            T::Number(value) => {
-                if value == 17 {
-                    Ok(Expression {
-                        typ: ExpressionType::Use(" ".to_string()),
-                        location: start + token.location,
-                    })
-                } else {
-                    err!(InvalidModuleName, token.location)
-                }
-            }
-            _ => err!(InvalidModuleName, token.location),
+        let mut imports = vec1::vec1!(match token.typ {
+            T::Identifier(symbol) => Ident {
+                symbol,
+                location: token.location,
+            },
+            _ => return err!(InvalidModuleName, token.location),
+        });
+        while matches!(self.at().typ, T::Dot) {
+            self.eat();
+            let token = self.eat();
+            match token.typ {
+                T::Identifier(symbol) => imports.push(Ident {
+                    symbol,
+                    location: token.location,
+                }),
+                _ => return err!(InvalidModuleName, token.location),
+            };
         }
+        Ok(Expression {
+            location: start + imports.last().location,
+            typ: ExpressionType::Use(imports),
+        })
     }
 
     fn parse_var_declaration(&mut self) -> Res {
@@ -228,7 +240,12 @@ impl Parser {
         let token = self.eat();
         match token.typ {
             T::Identifier(symbol) => Ok(Expression {
-                typ: ExpressionType::VarDeclaration { symbol },
+                typ: ExpressionType::VarDeclaration {
+                    ident: Ident {
+                        symbol,
+                        location: token.location,
+                    },
+                },
                 location: start + token.location,
             }),
             _ => err!(InvalidDeclartion, token.location),
@@ -248,7 +265,10 @@ impl Parser {
         let end = value.location;
         Ok(Expression {
             typ: ExpressionType::InlineDeclaration {
-                symbol: ident,
+                ident: Ident {
+                    symbol: ident,
+                    location: token.location,
+                },
                 value: Box::new(value),
             },
             location: start + end,
@@ -271,7 +291,10 @@ impl Parser {
             let end = value.location;
             return Ok(Expression {
                 typ: ExpressionType::Assignment {
-                    symbol: name,
+                    ident: Ident {
+                        symbol: name,
+                        location: left.location,
+                    },
                     value: Box::new(value),
                 },
                 location: left.location + end,
@@ -293,7 +316,10 @@ impl Parser {
             let location = left.location + value.location;
             return Ok(Expression {
                 typ: ExpressionType::IAssignment {
-                    symbol: name.clone(),
+                    ident: Ident {
+                        symbol: name.clone(),
+                        location: left.location,
+                    },
                     value: Box::new(value),
                     operator,
                 },
@@ -469,7 +495,10 @@ impl Parser {
             object = Expression {
                 typ: ExpressionType::Member {
                     object: Box::new(object),
-                    property: name,
+                    property: Ident {
+                        symbol: name,
+                        location: property.location,
+                    },
                 },
                 location,
             }
