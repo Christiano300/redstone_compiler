@@ -20,7 +20,7 @@ use super::{
 
 const VAR_SLOTS: usize = 32;
 
-type Res<T = ()> = Result<T, Error>;
+type Res<T = (), E = Error> = Result<T, E>;
 
 #[macro_export]
 macro_rules! instr {
@@ -64,7 +64,7 @@ macro_rules! instr {
 ///     Location(0, 0)))]
 /// );
 /// ```
-pub fn compile_program(ast: Vec<Expression>) -> Res<Vec<Instruction>> {
+pub fn compile_program(ast: Vec<Expression>) -> Res<Vec<Instruction>, Vec<Error>> {
     let compiler = Compiler::new();
     compiler.generate_assembly(ast)
 }
@@ -230,9 +230,14 @@ impl Compiler {
         self.scopes.len() == 1
     }
 
-    fn generate_assembly(mut self, body: Vec<Expression>) -> Res<Vec<Instruction>> {
-        body.into_iter()
-            .try_for_each(|line| self.eval_statement(line))?;
+    fn generate_assembly(mut self, body: Vec<Expression>) -> Res<Vec<Instruction>, Vec<Error>> {
+        let errors = body
+            .into_iter()
+            .filter_map(|line| self.eval_statement(line).err())
+            .collect::<Vec<_>>();
+        if !errors.is_empty() {
+            return Err(errors);
+        }
 
         Ok(self.get_instructions())
     }

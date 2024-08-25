@@ -13,7 +13,7 @@ pub struct Parser {
     tokens: VecDeque<Token>,
 }
 
-type Res<T = Expression> = Result<T, Error>;
+type Res<T = Expression, E = Error> = Result<T, E>;
 
 macro_rules! match_fn {
     ($pattern:pat $(if $guard:expr)? $(,)?) => {
@@ -71,13 +71,20 @@ impl Parser {
     /// # Errors
     ///
     /// when any error occurs
-    pub fn produce_ast(&mut self, tokens: Vec<Token>) -> Res<Vec<Expression>> {
+    pub fn produce_ast(&mut self, tokens: Vec<Token>) -> Res<Vec<Expression>, Vec<Error>> {
         self.tokens = VecDeque::from(tokens);
 
         let mut body = vec![];
+        let mut errors = vec![];
 
         while !self.tokens.is_empty() && self.at().typ != TokenType::Eof {
-            body.push(self.parse_statement()?);
+            match self.parse_statement() {
+                Ok(expr) => body.push(expr),
+                Err(err) => errors.push(err),
+            }
+        }
+        if !errors.is_empty() {
+            return Err(errors);
         }
         Ok(body)
     }

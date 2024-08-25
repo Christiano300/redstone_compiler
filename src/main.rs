@@ -100,8 +100,9 @@ fn main() -> io::Result<()> {
     let mut parser = Parser::new();
     let ast = match parser.produce_ast(tokens) {
         Ok(ast) => ast,
-        Err(err) => {
-            err.pretty_print(code.as_str(), path.as_str());
+        Err(errs) => {
+            errs.into_iter()
+                .for_each(|err| err.pretty_print(code.as_str(), path.as_str()));
             return Ok(());
         }
     };
@@ -111,8 +112,10 @@ fn main() -> io::Result<()> {
 
     let assembly = match compile_program(ast) {
         Ok(assembly) => assembly,
-        Err(err) => {
-            err.pretty_print(code.as_str(), path.as_str());
+        Err(errs) => {
+            for err in errs {
+                err.pretty_print(code.as_str(), path.as_str());
+            }
             return Ok(());
         }
     };
@@ -192,8 +195,9 @@ fn repl() -> io::Result<()> {
 
         let ast = match parser_result {
             Ok(ast) => ast,
-            Err(err) => {
-                err.pretty_print(&line, "Repl");
+            Err(errs) => {
+                errs.into_iter()
+                    .for_each(|err| err.pretty_print(&line, "Repl"));
                 continue;
             }
         };
@@ -202,7 +206,9 @@ fn repl() -> io::Result<()> {
         let code = compile_program(ast);
         match code {
             Ok(code) => println!("{code:#?}"),
-            Err(err) => err.pretty_print(&line, "Repl"),
+            Err(err) => err.into_iter().for_each(|err| {
+                err.pretty_print(&line, "Repl");
+            }),
         }
     }
 }
