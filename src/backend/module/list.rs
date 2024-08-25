@@ -109,11 +109,11 @@ fn at(compiler: &mut Compiler, call: &Call) -> Res {
         compiler.put_into_b(address)?;
     } else {
         compiler.eval_expr(address)?;
-        if let ExpressionType::Assignment { symbol, value: _ } = &address.typ {
+        if let ExpressionType::Assignment { ident, value: _ } = &address.typ {
             instr!(
                 compiler,
                 LB,
-                compiler.get_var(symbol, location)?,
+                compiler.get_var(&ident.symbol, location)?,
                 address.location
             );
         } else {

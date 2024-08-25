@@ -10,7 +10,7 @@ use crate::{
     backend::{module::Call, ComputerState, Instr, RegisterContents, Scope},
     err,
     error::Error,
-    frontend::{EqualityOperator, Expression, ExpressionType, Operator, Range},
+    frontend::{EqualityOperator, Expression, ExpressionType, Ident, Operator, Range},
 };
 
 use super::{
@@ -244,12 +244,12 @@ impl Compiler {
 
     fn eval_statement(&mut self, line: Expression) -> Res {
         match line.typ {
-            ExpressionType::InlineDeclaration { symbol, value } => {
+            ExpressionType::InlineDeclaration { ident, value } => {
                 let value = self.try_eval_const(&value).map_err(|loc| Error {
                     typ: Box::new(ErrorType::ForbiddenInline),
                     location: loc,
                 })?;
-                self.insert_inline_var(symbol, value);
+                self.insert_inline_var(ident.symbol, value);
                 Ok(())
             }
             ExpressionType::Use(module) => {
@@ -270,8 +270,8 @@ impl Compiler {
 
                 Ok(())
             }
-            ExpressionType::VarDeclaration { symbol } => {
-                self.insert_var(symbol.as_str(), line.location)?;
+            ExpressionType::VarDeclaration { ident } => {
+                self.insert_var(&ident.symbol, line.location)?;
                 Ok(())
             }
             ExpressionType::Pass => Ok(()),
@@ -458,15 +458,15 @@ impl Compiler {
                 right,
                 operator,
             } => self.eval_binary_expr(left, right, *operator, expr.location)?,
-            ExpressionType::Assignment { symbol, value } => {
-                self.eval_assignment(symbol, value)?;
+            ExpressionType::Assignment { ident, value } => {
+                self.eval_assignment(&ident.symbol, value)?;
             }
             ExpressionType::IAssignment {
-                symbol,
+                ident,
                 value,
                 operator,
             } => {
-                self.eval_iassignment(symbol, value, *operator)?;
+                self.eval_iassignment(ident, value, *operator)?;
             }
             ExpressionType::Call { args, function } => self.eval_call(function, args)?,
             ExpressionType::EqExpr { .. } => {
@@ -484,7 +484,7 @@ impl Compiler {
         use ExpressionType as E;
         match &expr.typ {
             E::NumericLiteral(..) | E::Identifier(..) => true,
-            E::Assignment { symbol: _, value } => Self::can_put_into_a(value),
+            E::Assignment { ident: _, value } => Self::can_put_into_a(value),
             _ => false,
         }
     }
@@ -533,11 +533,11 @@ impl Compiler {
                     swapped = true;
                 } else {
                     // if we just saved a variable we use it to switch
-                    if let ExpressionType::Assignment { symbol, value: _ } = &right.typ {
+                    if let ExpressionType::Assignment { ident, value: _ } = &right.typ {
                         instr!(
                             self,
                             LB,
-                            self.get_var(symbol, Range::default()).unwrap(),
+                            self.get_var(&ident.symbol, Range::default()).unwrap(),
                             right.location
                         );
                     } else {
@@ -552,12 +552,12 @@ impl Compiler {
             }
             (false, false) => {
                 self.eval_expr(right)?;
-                if let ExpressionType::Assignment { symbol, value: _ } = &right.typ {
+                if let ExpressionType::Assignment { ident, value: _ } = &right.typ {
                     self.eval_expr(left)?;
                     instr!(
                         self,
                         LB,
-                        self.get_var(symbol, Range::default()).unwrap(),
+                        self.get_var(&ident.symbol, Range::default()).unwrap(),
                         right.location
                     );
                 } else {
@@ -582,16 +582,16 @@ impl Compiler {
         Ok(())
     }
 
-    fn eval_iassignment(&mut self, symbol: &String, value: &Expression, operator: Operator) -> Res {
+    fn eval_iassignment(&mut self, ident: &Ident, value: &Expression, operator: Operator) -> Res {
         self.eval_expr(value)?;
         self.put_into_b(&Expression {
-            typ: ExpressionType::Identifier(symbol.clone()),
+            typ: ExpressionType::Identifier(ident.symbol.clone()),
             location: value.location,
         })?;
 
         self.put_op(operator, value.location);
 
-        let slot = self.get_var(symbol, value.location)?;
+        let slot = self.get_var(&ident.symbol, value.location)?;
 
         self.save_to(slot, value.location);
         Ok(())
@@ -817,7 +817,7 @@ impl Compiler {
             module,
             self,
             &Call {
-                method_name: method,
+                method_name: &method.symbol,
                 args,
                 location: function.location,
             },

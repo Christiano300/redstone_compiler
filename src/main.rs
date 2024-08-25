@@ -136,7 +136,7 @@ fn main() -> io::Result<()> {
     if has_arg(&mut args, "--loc") {
         let mut locations = String::new();
         let mut last = None;
-        assembly.iter().for_each(|instr| {
+        for instr in &assembly {
             let line_s = (instr.orig_location.0 .0, instr.orig_location.1 .0);
             if last != Some(line_s) {
                 locations.push_str(&if line_s.0 == line_s.1 {
@@ -146,8 +146,8 @@ fn main() -> io::Result<()> {
                 });
                 last = Some(line_s);
             }
-            locations.push_str(&format!("\t{instr}\n"))
-        });
+            locations.push_str(&format!("\t{instr}\n"));
+        }
         fs::write(format!("{dir}/{program}.loc"), locations)?;
     }
 

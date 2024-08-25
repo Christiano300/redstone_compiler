@@ -253,7 +253,7 @@ fn get_color(color: &str) -> Option<NonZeroI16> {
 fn is_const_color(expr: &Expression) -> Option<NonZeroI16> {
     match &expr.typ {
         ExpressionType::Member { object, property } => {
-            let color = get_color(property);
+            let color = get_color(&property.symbol);
             match color {
                 Some(_) if matches!(&object.typ, ExpressionType::Identifier(name) if name == "colorscreen") => {
                     color
@@ -272,7 +272,7 @@ fn is_color_of_call(expr: &ExpressionType) -> bool {
                 if args.len() == 1 && Compiler::can_put_into_a(&args[0]) =>
             {
                 matches!(&object.typ, ExpressionType::Identifier(name) if name == "colorscreen")
-                    && property.as_str() == "color_of"
+                    && &property.symbol == "color_of"
             }
             _ => false,
         },

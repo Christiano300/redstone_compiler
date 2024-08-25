@@ -52,12 +52,12 @@ fn write(compiler: &mut Compiler, call: &Call) -> Res {
         }
         (false, false) => {
             compiler.eval_expr(value)?;
-            if let ExpressionType::Assignment { symbol, value: _ } = &value.typ {
+            if let ExpressionType::Assignment { ident, value: _ } = &value.typ {
                 put_address(compiler, address, call.location)?;
                 instr!(
                     compiler,
                     LA,
-                    compiler.get_var(symbol, call.location)?,
+                    compiler.get_var(&ident.symbol, call.location)?,
                     call.location
                 );
             } else {
@@ -96,11 +96,11 @@ fn put_address(compiler: &mut Compiler, address: &Expression, location: Range) -
             // if can_put_into_b is false and
             // can_put_into_a is true is must be an assigmnent
             compiler.put_into_a(address)?;
-            if let ExpressionType::Assignment { symbol, value: _ } = &address.typ {
+            if let ExpressionType::Assignment { ident, value: _ } = &address.typ {
                 instr!(
                     compiler,
                     LB,
-                    compiler.get_var(symbol, location)?,
+                    compiler.get_var(&ident.symbol, location)?,
                     address.location
                 );
             }

@@ -6,7 +6,7 @@ use crate::{
     frontend::{ErrorType, Range},
 };
 
-use super::{EqualityOperator, Expression, ExpressionType, Operator, Token, TokenType};
+use super::{EqualityOperator, Expression, ExpressionType, Ident, Operator, Token, TokenType};
 
 #[derive(Default)]
 pub struct Parser {
@@ -228,7 +228,12 @@ impl Parser {
         let token = self.eat();
         match token.typ {
             T::Identifier(symbol) => Ok(Expression {
-                typ: ExpressionType::VarDeclaration { symbol },
+                typ: ExpressionType::VarDeclaration {
+                    ident: Ident {
+                        symbol,
+                        location: token.location,
+                    },
+                },
                 location: start + token.location,
             }),
             _ => err!(InvalidDeclartion, token.location),
@@ -248,7 +253,10 @@ impl Parser {
         let end = value.location;
         Ok(Expression {
             typ: ExpressionType::InlineDeclaration {
-                symbol: ident,
+                ident: Ident {
+                    symbol: ident,
+                    location: token.location,
+                },
                 value: Box::new(value),
             },
             location: start + end,
@@ -271,7 +279,10 @@ impl Parser {
             let end = value.location;
             return Ok(Expression {
                 typ: ExpressionType::Assignment {
-                    symbol: name,
+                    ident: Ident {
+                        symbol: name,
+                        location: left.location,
+                    },
                     value: Box::new(value),
                 },
                 location: left.location + end,
@@ -293,7 +304,10 @@ impl Parser {
             let location = left.location + value.location;
             return Ok(Expression {
                 typ: ExpressionType::IAssignment {
-                    symbol: name.clone(),
+                    ident: Ident {
+                        symbol: name.clone(),
+                        location: left.location,
+                    },
                     value: Box::new(value),
                     operator,
                 },
@@ -469,7 +483,10 @@ impl Parser {
             object = Expression {
                 typ: ExpressionType::Member {
                     object: Box::new(object),
-                    property: name,
+                    property: Ident {
+                        symbol: name,
+                        location: property.location,
+                    },
                 },
                 location,
             }
