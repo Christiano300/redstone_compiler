@@ -190,7 +190,7 @@ impl Instruction {
         use InstructionVariant as IV;
         use RegisterContents as RC;
         match self.variant {
-            IV::LA | IV::SVA => on.a = RC::Variable(self.arg.unwrap_or(0)),
+            IV::LA => on.a = RC::Variable(self.arg.unwrap_or(0)),
             IV::LB => on.b = RC::Variable(self.arg.unwrap_or(0)),
             IV::LAL => on.a = RC::Number(self.arg.unwrap_or(0).into()),
             IV::LAH => {
@@ -208,6 +208,12 @@ impl Instruction {
                         RC::Number(value + (i16::from(self.arg.unwrap_or(0)) << 8))
                     }
                     _ => RC::Unknown,
+                }
+            }
+            IV::SVA => {
+                let arg = self.arg.unwrap_or(0);
+                if arg < 32 {
+                    on.a = RC::Variable(arg);
                 }
             }
             IV::ADD | IV::SUB | IV::MUL | IV::AND | IV::OR | IV::XOR | IV::SUP | IV::SDN => {

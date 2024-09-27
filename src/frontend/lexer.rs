@@ -38,14 +38,14 @@ pub struct Token {
 }
 
 impl Token {
-    fn from_char(typ: TokenType, location: Location) -> Self {
+    const fn from_char(typ: TokenType, location: Location) -> Self {
         Self {
             typ,
             location: Range::single_char(location),
         }
     }
 
-    fn with_len(typ: TokenType, location: Location, len: u16) -> Self {
+    const fn with_len(typ: TokenType, location: Location, len: u16) -> Self {
         Self {
             typ,
             location: Range(location, Location(location.0, location.1 + len - 1)),
