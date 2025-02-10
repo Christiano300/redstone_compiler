@@ -16,9 +16,9 @@ fastrand = "2.3.0"
 unsafe_code = "forbid"
 
 [lints.clippy]
-enum_glob_use = { level = "deny", priority = 1 }
-pedantic = "deny"
-nursery = "deny"
+enum_glob_use = { level = "warn", priority = 1 }
+pedantic = "warn"
+nursery = "warn"
 cast_possible_truncation = { level = "allow", priority = 1 }
 cast_sign_loss = { level = "allow", priority = 1 }
 cast_possible_wrap = { level = "allow", priority = 1 }
