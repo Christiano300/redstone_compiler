@@ -10,15 +10,15 @@ edition = "2021"
 table_enum = "0.3.0"
 vec1 = "1.12.0"
 colored = "3.0.0"
-fastrand = "2.1.0"
+fastrand = "2.3.0"
 
 [lints.rust]
 unsafe_code = "forbid"
 
 [lints.clippy]
-enum_glob_use = {level = "deny", priority = 1}
+enum_glob_use = { level = "deny", priority = 1 }
 pedantic = "deny"
 nursery = "deny"
-cast_possible_truncation = {level = "allow", priority = 1}
-cast_sign_loss = {level = "allow", priority = 1}
-cast_possible_wrap = {level = "allow", priority = 1}
+cast_possible_truncation = { level = "allow", priority = 1 }
+cast_sign_loss = { level = "allow", priority = 1 }
+cast_possible_wrap = { level = "allow", priority = 1 }
