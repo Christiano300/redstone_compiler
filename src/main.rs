@@ -1,6 +1,7 @@
 use std::{
     collections::VecDeque,
     env,
+    fmt::Write as _,
     fs::{self, create_dir_all, File},
     io::{self, Read, Write},
 };
@@ -101,8 +102,9 @@ fn main() -> io::Result<()> {
     let ast = match parser.produce_ast(tokens) {
         Ok(ast) => ast,
         Err(errs) => {
-            errs.into_iter()
-                .for_each(|err| err.pretty_print(code.as_str(), path.as_str()));
+            for err in errs {
+                err.pretty_print(code.as_str(), path.as_str());
+            }
             return Ok(());
         }
     };
@@ -142,14 +144,14 @@ fn main() -> io::Result<()> {
         for instr in &assembly {
             let line_s = (instr.orig_location.0 .0, instr.orig_location.1 .0);
             if last != Some(line_s) {
-                locations.push_str(&if line_s.0 == line_s.1 {
-                    format!("{}:\n", line_s.0 + 1)
+                if line_s.0 == line_s.1 {
+                    let _ = writeln!(locations, "{}:", line_s.0 + 1);
                 } else {
-                    format!("{}-{}:\n", line_s.0 + 1, line_s.1 + 1)
-                });
+                    let _ = writeln!(locations, "{}-{}:", line_s.0 + 1, line_s.1 + 1);
+                }
                 last = Some(line_s);
             }
-            locations.push_str(&format!("\t{instr}\n"));
+            let _ = writeln!(locations, "\t{instr}");
         }
         fs::write(format!("{dir}/{program}.loc"), locations)?;
     }
@@ -196,8 +198,9 @@ fn repl() -> io::Result<()> {
         let ast = match parser_result {
             Ok(ast) => ast,
             Err(errs) => {
-                errs.into_iter()
-                    .for_each(|err| err.pretty_print(&line, "Repl"));
+                for err in errs {
+                    err.pretty_print(&line, "Repl");
+                }
                 continue;
             }
         };

@@ -2,10 +2,16 @@ use vec1::Vec1;
 
 use super::Range;
 
-#[derive(Debug, Default, PartialEq, Eq, Clone)]
+#[derive(Default, PartialEq, Eq, Clone)]
 pub struct Ident {
     pub symbol: String,
     pub location: Range,
+}
+
+impl std::fmt::Debug for Ident {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Ident(\"{}\") at {:?}", self.symbol, self.location)
+    }
 }
 
 #[derive(Debug, Default)]
