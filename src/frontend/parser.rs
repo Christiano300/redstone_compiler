@@ -226,7 +226,7 @@ impl Parser {
                     location: token.location,
                 }),
                 _ => return err!(InvalidModuleName, token.location),
-            };
+            }
         }
         Ok(Expression {
             location: start + imports.last().location,

@@ -18,26 +18,30 @@ use super::{
     ErrorType, Instruction, InstructionVariant,
 };
 
+use static_assertions::const_assert;
+
 const VAR_SLOTS: usize = 32;
 
 type Res<T = (), E = Error> = Result<T, E>;
 
 #[macro_export]
 macro_rules! instr {
-    ($self:ident, $variant:ident, $arg:expr, $loc:expr) => {
+    ($self:ident, $variant:ident, $arg:expr, $loc:expr) => {{
+        const_assert!($crate::backend::InstructionVariant::$variant.has_arg(),);
         $self.push_instr($crate::backend::Instruction::new(
             $crate::backend::InstructionVariant::$variant,
             Some($arg),
             $loc,
         ))
-    };
-    ($self:ident, $variant:ident, $loc:expr) => {
+    }};
+    ($self:ident, $variant:ident, $loc:expr) => {{
+        const_assert!(!$crate::backend::InstructionVariant::$variant.has_arg());
         $self.push_instr($crate::backend::Instruction::new(
             $crate::backend::InstructionVariant::$variant,
             None,
             $loc,
         ))
-    };
+    }};
 }
 
 /// compile that boi
@@ -53,7 +57,7 @@ macro_rules! instr {
 /// # Examples
 ///
 /// ```
-/// use redstone_compiler::{frontend::{Expression, ExpressionType, Range, Location}, backend::{compile_program, Instruction, InstructionVariant}};
+/// # use redstone_compiler::{frontend::{Expression, ExpressionType, Range, Location}, backend::{compile_program, Instruction, InstructionVariant}};
 /// let ast = vec![Expression { typ: ExpressionType::NumericLiteral(5), location: Range(Location(0, 0), Location(0, 0)) }];
 ///
 /// let compiled = compile_program(ast).unwrap();
@@ -189,7 +193,7 @@ impl Compiler {
         })
     }
 
-    pub fn cleanup_temp_var(&mut self, index: u8) {
+    pub const fn cleanup_temp_var(&mut self, index: u8) {
         self.variables[index as usize] = false;
     }
 
@@ -211,10 +215,12 @@ impl Compiler {
     }
 
     fn flatten_scope(scope: Vec<Instr>, into: &mut Vec<Instruction>) {
-        scope.into_iter().for_each(|i| match i {
-            Instr::Code(instr) => into.push(instr),
-            Instr::Scope(s) => Self::flatten_scope(s, into),
-        });
+        for i in scope {
+            match i {
+                Instr::Code(instr) => into.push(instr),
+                Instr::Scope(s) => Self::flatten_scope(s, into),
+            }
+        }
     }
 
     #[must_use]
@@ -458,8 +464,9 @@ impl Compiler {
     /// on any compiler error
     pub fn eval_expr(&mut self, expr: &Expression) -> Res {
         match &expr.typ {
-            ExpressionType::NumericLiteral(..) => self.put_into_a(expr)?,
-            ExpressionType::Identifier(..) => self.put_into_a(expr)?,
+            ExpressionType::NumericLiteral(..) | ExpressionType::Identifier(..) => {
+                self.put_into_a(expr)?;
+            }
             ExpressionType::BinaryExpr {
                 left,
                 right,

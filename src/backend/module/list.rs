@@ -72,7 +72,7 @@ fn pop(compiler: &mut Compiler, call: &Call) -> Res {
 fn get_pointer(compiler: &mut Compiler, call: &Call) -> Res {
     arg_parse(compiler, [], call)?;
     let pointer = *compiler.get_module_state(POINTER).unwrap();
-    instr!(compiler, LA, pointer);
+    instr!(compiler, LA, pointer, call.location);
     Ok(())
 }
 
@@ -82,7 +82,7 @@ fn set_pointer(compiler: &mut Compiler, call: &Call) -> Res {
     let pointer = *compiler.get_module_state(POINTER).unwrap();
     compiler.eval_expr(value)?;
 
-    instr!(compiler, SVA, pointer);
+    instr!(compiler, SVA, pointer, call.location);
     Ok(())
 }
 
