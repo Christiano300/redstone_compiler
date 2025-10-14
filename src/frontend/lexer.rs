@@ -48,7 +48,13 @@ impl Token {
     const fn with_len(typ: TokenType, location: Location, len: u16) -> Self {
         Self {
             typ,
-            location: Range(location, Location(location.0, location.1 + len - 1)),
+            location: Range(
+                location,
+                Location {
+                    line: location.line,
+                    column: location.column + len - 1,
+                },
+            ),
         }
     }
 }
@@ -104,9 +110,14 @@ fn next(iter: &mut impl Iterator<Item = char>, location: &mut Location) -> Optio
     let n = iter.next();
     if let Some(char) = n {
         match char {
-            '\n' => *location = Location(location.0 + 1, 0),
+            '\n' => {
+                *location = Location {
+                    line: location.line + 1,
+                    column: 0,
+                }
+            }
             '\r' => {}
-            _ => location.1 += 1,
+            _ => location.column += 1,
         }
     }
     n
@@ -123,7 +134,7 @@ use TokenType as Tt;
 pub fn tokenize(source_code: &str) -> Result<Vec<Token>, Error> {
     let mut tokens: Vec<Token> = vec![];
     let mut src = source_code.chars().peekable();
-    let mut current_location = Location(0, 0);
+    let mut current_location = Location { line: 0, column: 0 };
     let Some(mut char) = next(&mut src, &mut current_location) else {
         return Ok(vec![]);
     };

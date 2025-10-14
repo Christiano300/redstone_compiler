@@ -58,14 +58,14 @@ macro_rules! instr {
 ///
 /// ```
 /// # use redstone_compiler::{frontend::{Expression, ExpressionType, Range, Location}, backend::{compile_program, Instruction, InstructionVariant}};
-/// let ast = vec![Expression { typ: ExpressionType::NumericLiteral(5), location: Range(Location(0, 0), Location(0, 0)) }];
+/// let ast = vec![Expression { typ: ExpressionType::NumericLiteral(5), location: Range(Location{line: 0, column: 0}, Location{line: 0, column: 0}) }];
 ///
 /// let compiled = compile_program(ast).unwrap();
 ///
 /// assert_eq!(
 ///     compiled,
-///     vec![Instruction::new(InstructionVariant::LAL, Some(5), Range(Location(0, 0),
-///     Location(0, 0)))]
+///     vec![Instruction::new(InstructionVariant::LAL, Some(5), Range(Location{line: 0, column: 0},
+///     Location{line: 0, column: 0}))]
 /// );
 /// ```
 pub fn compile_program(ast: Vec<Expression>) -> Res<Vec<Instruction>, Vec<Error>> {

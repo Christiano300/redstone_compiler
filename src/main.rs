@@ -142,14 +142,9 @@ fn main() -> io::Result<()> {
         let mut locations = String::new();
         let mut last = None;
         for instr in &assembly {
-            let line_s = (instr.orig_location.0 .0, instr.orig_location.1 .0);
-            if last != Some(line_s) {
-                if line_s.0 == line_s.1 {
-                    let _ = writeln!(locations, "{}:", line_s.0 + 1);
-                } else {
-                    let _ = writeln!(locations, "{}-{}:", line_s.0 + 1, line_s.1 + 1);
-                }
-                last = Some(line_s);
+            if last != Some(instr.orig_location) {
+                let _ = writeln!(locations, "{:?}", instr.orig_location);
+                last = Some(instr.orig_location);
             }
             let _ = writeln!(locations, "\t{instr}");
         }

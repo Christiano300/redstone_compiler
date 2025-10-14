@@ -66,11 +66,11 @@ impl Error {
     }
 
     pub fn pretty_print(&self, code: &str, file: &str) {
-        if self.location.0 .0 != self.location.1 .0 {
+        if self.location.0.line != self.location.1.line {
             println!("Multi-line errors don't support nice error messages yet\n{self}");
             return;
         }
-        let Some(line) = code.split('\n').nth(self.location.0 .0 as usize) else {
+        let Some(line) = code.split('\n').nth(self.location.0.line as usize) else {
             println!("Compiler crashed, line does not exist in file, apparently\n{self}");
             return;
         };
@@ -82,7 +82,7 @@ impl Error {
             self.location
         );
 
-        let line_number = format!("{} | ", self.location.0 .0 + 1);
+        let line_number = format!("{} | ", self.location.0.line + 1);
         let len = line_number.len() - 3;
 
         println!("{} {} ", " ".repeat(len), "|".custom_color(BRIGHT_BLUE));
@@ -91,8 +91,8 @@ impl Error {
         print!("{} {} ", " ".repeat(len), "|".custom_color(BRIGHT_BLUE));
         println!(
             "{}{}\n",
-            " ".repeat(self.location.0 .1 as usize - 1),
-            "^".repeat((self.location.1 .1 - self.location.0 .1) as usize + 1)
+            " ".repeat(self.location.0.column as usize - 1),
+            "^".repeat((self.location.1.column - self.location.0.column) as usize + 1)
                 .custom_color(BRIGHT_RED)
         );
     }
