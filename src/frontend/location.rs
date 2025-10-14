@@ -3,11 +3,14 @@ use std::ops::Add;
 
 // (line, column)
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Location(pub u16, pub u16);
+pub struct Location {
+    pub line: u16,
+    pub column: u16,
+}
 
 impl Debug for Location {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{}", self.0 + 1, self.1)
+        write!(f, "{}:{}", self.line + 1, self.column)
     }
 }
 
@@ -32,16 +35,19 @@ impl Add for Range {
 
 impl Default for Range {
     fn default() -> Self {
-        Self(Location(0, 0), Location(0, 0))
+        Self(
+            Location { line: 0, column: 0 },
+            Location { line: 0, column: 0 },
+        )
     }
 }
 
 impl Debug for Range {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         //         line matches         column matche
-        match (self.0 .0 == self.1 .0, self.0 .1 == self.1 .1) {
+        match (self.0.line == self.1.line, self.0.column == self.1.column) {
             (true, true) => write!(f, "{:?}", self.0),
-            (true, false) => write!(f, "{:?}-{}", self.0, self.1 .1),
+            (true, false) => write!(f, "{:?}-{}", self.0, self.1.column),
             (false, _) => write!(f, "{:?}-{:?}", self.0, self.1),
         }
     }
