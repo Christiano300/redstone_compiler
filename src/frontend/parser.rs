@@ -391,7 +391,7 @@ impl Parser {
     }
 
     fn parse_multiplicative(&mut self) -> Res {
-        let mut left = self.parse_call_member()?;
+        let mut left = self.parse_bitop()?;
 
         let mut operator = Operator::Plus; // default, gets overwritten
 
@@ -400,6 +400,36 @@ impl Parser {
                 TokenType::BinaryOperator(op) => {
                     operator = op;
                     op == Operator::Mult
+                }
+                _ => false,
+            }
+        } {
+            self.eat();
+            let right = self.parse_bitop()?;
+            let location = left.location + right.location;
+            left = Expression {
+                typ: ExpressionType::BinaryExpr {
+                    left: Box::from(left),
+                    right: Box::from(right),
+                    operator,
+                },
+                location,
+            };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_bitop(&mut self) -> Res {
+        let mut left = self.parse_call_member()?;
+
+        let mut operator = Operator::Plus; // default, gets overwritten
+
+        while {
+            match self.at().typ {
+                TokenType::BinaryOperator(op) => {
+                    operator = op;
+                    matches!(op, Operator::And | Operator::Or | Operator::Plus)
                 }
                 _ => false,
             }
