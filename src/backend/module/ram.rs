@@ -89,7 +89,6 @@ fn put_address(compiler: &mut Compiler, address: &Expression, location: Range) -
         }
         compiler.put_b_number(value, location);
     } else {
-        instr!(compiler, RC, location);
         if Compiler::can_put_into_b(address) {
             compiler.put_into_b(address)?;
         } else if Compiler::can_put_into_a(address) {
@@ -108,6 +107,7 @@ fn put_address(compiler: &mut Compiler, address: &Expression, location: Range) -
             compiler.eval_expr(address)?;
             compiler.switch(location)?;
         }
+        instr!(compiler, RC, location);
     }
     Ok(())
 }
