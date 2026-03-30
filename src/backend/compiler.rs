@@ -4,18 +4,18 @@ use std::{
     fmt::Debug,
 };
 
-use vec1::{vec1, Vec1};
+use vec1::{Vec1, vec1};
 
 use crate::{
-    backend::{module::Call, ComputerState, Instr, RegisterContents, Scope},
+    backend::{ComputerState, Instr, RegisterContents, Scope, module::Call},
     err,
     error::Error,
     frontend::{EqualityOperator, Expression, ExpressionType, Ident, Operator, Range},
 };
 
 use super::{
-    module::{call, exist, init},
     ErrorType, Instruction, InstructionVariant,
+    module::{call, exist, init},
 };
 
 use static_assertions::const_assert;
@@ -58,7 +58,10 @@ macro_rules! instr {
 ///
 /// ```
 /// # use redstone_compiler::{frontend::{Expression, ExpressionType, Range, Location}, backend::{compile_program, Instruction, InstructionVariant}};
-/// let ast = vec![Expression { typ: ExpressionType::NumericLiteral(5), location: Range(Location{line: 0, column: 0}, Location{line: 0, column: 0}) }];
+/// let ast = vec![Expression {
+///     typ: ExpressionType::NumericLiteral(5),
+///     location: Range(Location { line: 0, column: 0 },
+///         Location { line: 0, column: 0 }) }];
 ///
 /// let compiled = compile_program(ast).unwrap();
 ///
@@ -666,10 +669,10 @@ impl Compiler {
                     self.put_a_number(value, expr.location);
                 } else {
                     let var = self.get_var(symbol, expr.location)?;
-                    if let RegisterContents::Variable(v) = self.last_scope().state.a {
-                        if v == var {
-                            return Ok(());
-                        }
+                    if let RegisterContents::Variable(v) = self.last_scope().state.a
+                        && v == var
+                    {
+                        return Ok(());
                     }
                     instr!(self, LA, var, expr.location);
                 }
@@ -690,7 +693,7 @@ impl Compiler {
                         "put_a called on wrong expression".to_string(),
                     )),
                     location: expr.location,
-                })
+                });
             }
         }
         Ok(())
@@ -712,10 +715,10 @@ impl Compiler {
                     self.put_b_number(value, expr.location);
                 } else {
                     let var = self.get_var(symbol, expr.location)?;
-                    if let RegisterContents::Variable(v) = self.last_scope().state.b {
-                        if v == var {
-                            return Ok(());
-                        }
+                    if let RegisterContents::Variable(v) = self.last_scope().state.b
+                        && v == var
+                    {
+                        return Ok(());
                     }
                     instr!(self, LB, var, expr.location);
                 }
@@ -726,7 +729,7 @@ impl Compiler {
                         "put_b called on wrong expression".to_string(),
                     )),
                     location: expr.location,
-                })
+                });
             }
         }
         Ok(())
@@ -810,14 +813,14 @@ impl Compiler {
                     return Err(Error {
                         typ: Box::new(ErrorType::NonexistentModule(format!("{object:?}"))),
                         location: function.location,
-                    })
+                    });
                 }
             },
             _ => {
                 return Err(Error {
                     typ: Box::new(ErrorType::UnknownMethod(format!("{function:?}"))),
                     location: function.location,
-                })
+                });
             }
         }
         if !self.modules.contains(module) {

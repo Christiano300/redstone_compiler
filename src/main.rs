@@ -2,12 +2,12 @@ use std::{
     collections::VecDeque,
     env,
     fmt::Write as _,
-    fs::{self, create_dir_all, File},
+    fs::{self, File, create_dir_all},
     io::{self, Read, Write},
 };
 
 use colored::{Colorize, CustomColor};
-use redstone_compiler::frontend::{tokenize, Parser};
+use redstone_compiler::frontend::{Parser, tokenize};
 
 use redstone_compiler::backend::compile_program;
 
@@ -21,15 +21,16 @@ const fn color_from_hex(n: i32) -> CustomColor {
     }
 }
 
+#[allow(clippy::unreadable_literal)]
 const REDSTONE: [CustomColor; 8] = [
-    color_from_hex(0x00EE_0F00),
-    color_from_hex(0x00E2_0F00),
-    color_from_hex(0x00CF_1000),
-    color_from_hex(0x00BC_1000),
-    color_from_hex(0x00AA_1100),
-    color_from_hex(0x0094_1100),
-    color_from_hex(0x007F_1200),
-    color_from_hex(0x0069_1200),
+    color_from_hex(0xEE0F00),
+    color_from_hex(0xE20F00),
+    color_from_hex(0xCF1000),
+    color_from_hex(0xBC1000),
+    color_from_hex(0xAA1100),
+    color_from_hex(0x941100),
+    color_from_hex(0x7F1200),
+    color_from_hex(0x691200),
 ];
 
 fn redstone_color_print(str: &str) {

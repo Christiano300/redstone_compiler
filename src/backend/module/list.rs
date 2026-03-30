@@ -11,13 +11,13 @@ const INIT: &str = "list_init";
 const POINTER: &str = "list_ptr";
 
 use crate::{
-    backend::{compiler::Compiler, RamPage, RegisterContents},
+    backend::{RamPage, RegisterContents, compiler::Compiler},
     err,
     frontend::{ExpressionType, Range},
     instr, modul,
 };
 
-use super::{arg_parse, Arg, Call, Error, ErrorType, Res};
+use super::{Arg, Call, Error, ErrorType, Res, arg_parse};
 
 pub fn init(compiler: &mut Compiler, location: Range) -> Res {
     if is_initialized(compiler) {
@@ -35,7 +35,7 @@ pub fn init(compiler: &mut Compiler, location: Range) -> Res {
     Ok(())
 }
 
-modul!(add pop get_pointer set_pointer last at);
+modul!(add pop length _set_length last at);
 
 fn add(compiler: &mut Compiler, call: &Call) -> Res {
     let value = arg_parse(compiler, [Arg::Number("value")], call)?[0];
@@ -69,14 +69,14 @@ fn pop(compiler: &mut Compiler, call: &Call) -> Res {
     Ok(())
 }
 
-fn get_pointer(compiler: &mut Compiler, call: &Call) -> Res {
+fn length(compiler: &mut Compiler, call: &Call) -> Res {
     arg_parse(compiler, [], call)?;
     let pointer = *compiler.get_module_state(POINTER).unwrap();
     instr!(compiler, LA, pointer, call.location);
     Ok(())
 }
 
-fn set_pointer(compiler: &mut Compiler, call: &Call) -> Res {
+fn _set_length(compiler: &mut Compiler, call: &Call) -> Res {
     let value = arg_parse(compiler, [Arg::Number("value")], call)?[0];
 
     let pointer = *compiler.get_module_state(POINTER).unwrap();

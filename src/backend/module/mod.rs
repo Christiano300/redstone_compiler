@@ -85,7 +85,10 @@ macro_rules! modul {
     ( $($method:ident)* ) => {
         pub fn module(compiler: &mut Compiler, call: &Call) -> Res {
             match call.method_name.as_str() {
-                $(stringify!($method) => $method(compiler, call),)*
+                $(stringify!($method) => {
+                    #[allow(clippy::used_underscore_items)]
+                    $method(compiler, call)
+                },)*
                 _ => err!(ErrorType::UnknownMethod(call.method_name.clone()), call.location)
             }
         }

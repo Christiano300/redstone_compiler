@@ -1,7 +1,7 @@
 use crate::{
     backend::{
-        module::{arg_parse, Arg},
         Compiler,
+        module::{Arg, arg_parse},
     },
     err,
     error::Error,
