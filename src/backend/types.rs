@@ -35,19 +35,19 @@ pub struct ComputerState {
 #[derive(Debug)]
 pub enum Instr {
     Code(Instruction),
-    Scope(Vec<Instr>),
+    Scope(Vec<Self>),
 }
 
 #[derive(Debug, Default)]
 pub struct Scope {
     pub state: ComputerState,
-    pub(crate) variables: HashMap<String, u8>,
-    pub(crate) inline_variables: HashMap<String, i16>,
-    pub(crate) instructions: Vec<Instr>,
+    pub variables: HashMap<String, u8>,
+    pub inline_variables: HashMap<String, i16>,
+    pub instructions: Vec<Instr>,
 }
 
 impl Scope {
-    pub(crate) fn with_state(state: ComputerState) -> Self {
+    pub fn with_state(state: ComputerState) -> Self {
         Self {
             state,
             ..Self::default()

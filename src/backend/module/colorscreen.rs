@@ -42,8 +42,6 @@ const SCREENPOS2_REG: u8 = 6;
 const PAINT: i16 = 1;
 const FLIP: i16 = 2;
 
-use std::num::NonZeroI16;
-
 use crate::{
     backend::compiler::Compiler,
     err,
@@ -51,14 +49,14 @@ use crate::{
     instr, modul,
 };
 
-use super::{arg_parse, screen::put_xy, Arg, Call, ErrorType, Res};
+use super::{Arg, Call, ErrorType, Res, arg_parse, screen::put_xy};
 
 modul!(set set_at fill fill_xy fill_screen flip color_of);
 
 fn fill_screen(compiler: &mut Compiler, call: &Call) -> Res {
     let [color] = arg_parse(compiler, [Arg::Number("color")], call)?;
     match is_const_color(color) {
-        Some(color) => compiler.put_a_number(color.into(), call.location),
+        Some(color) => compiler.put_a_number(color, call.location),
         None => compiler.eval_expr(color)?,
     }
     compiler.save_to_out(SCREENPOS1_REG, call.location);
@@ -95,7 +93,7 @@ fn put_xy_color(
     match is_const_color(color) {
         Some(color) => {
             put_xy(compiler, x, y, call.location, 6)?;
-            compiler.put_b_number(color.into(), call.location);
+            compiler.put_b_number(color, call.location);
             instr!(compiler, OR, call.location);
         }
         None => {
@@ -203,7 +201,7 @@ fn load_position_color(
         }
         (None, Some(color)) => {
             compiler.eval_expr(position)?;
-            compiler.put_b_number(color.into(), call.location);
+            compiler.put_b_number(color, call.location);
             instr!(compiler, OR, call.location);
         }
         (Some(pos), None) => {
@@ -211,7 +209,7 @@ fn load_position_color(
             compiler.put_b_number(pos, call.location);
             instr!(compiler, OR, call.location);
         }
-        (Some(pos), Some(color)) => compiler.put_a_number(pos | i16::from(color), call.location),
+        (Some(pos), Some(color)) => compiler.put_a_number(pos | color, call.location),
     }
     Ok(())
 }
@@ -226,8 +224,8 @@ fn color_of(compiler: &mut Compiler, call: &Call) -> Res {
     Ok(())
 }
 
-fn get_color(color: &str) -> Option<NonZeroI16> {
-    NonZeroI16::new(
+fn get_color(color: &str) -> Option<i16> {
+    Some(
         match color {
             "white" => 0,
             "orange" => 1,
@@ -250,7 +248,7 @@ fn get_color(color: &str) -> Option<NonZeroI16> {
     )
 }
 
-fn is_const_color(expr: &Expression) -> Option<NonZeroI16> {
+fn is_const_color(expr: &Expression) -> Option<i16> {
     match &expr.typ {
         ExpressionType::Member { object, property } => {
             let color = get_color(&property.symbol);

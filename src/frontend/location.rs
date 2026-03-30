@@ -44,7 +44,6 @@ impl Default for Range {
 
 impl Debug for Range {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        //         line matches         column matche
         match (self.0.line == self.1.line, self.0.column == self.1.column) {
             (true, true) => write!(f, "{:?}", self.0),
             (true, false) => write!(f, "{:?}-{}", self.0, self.1.column),

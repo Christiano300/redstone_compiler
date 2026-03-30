@@ -429,7 +429,7 @@ impl Parser {
             match self.at().typ {
                 TokenType::BinaryOperator(op) => {
                     operator = op;
-                    matches!(op, Operator::And | Operator::Or | Operator::Plus)
+                    matches!(op, Operator::And | Operator::Or | Operator::Xor)
                 }
                 _ => false,
             }
