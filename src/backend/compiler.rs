@@ -9,7 +9,9 @@ use vec1::{Vec1, vec1};
 use crate::{
     backend::{ComputerState, Instr, RegisterContents, Scope, module::Call},
     error::Error,
-    frontend::{EqualityOperator, Expression, ExpressionType, Ident, Operator, Range},
+    frontend::{
+        EqualityOperator, Expr, Expression, Fragment, Ident, Operator, Range, Statement, Stmt,
+    },
 };
 
 use super::{
@@ -69,7 +71,7 @@ macro_rules! instr {
 ///     Location{line: 0, column: 0}))]
 /// );
 /// ```
-pub fn compile_program(ast: Vec<Expression>) -> Res<Vec<Instruction>, Vec<Error>> {
+pub fn compile_program(ast: Fragment) -> Res<Vec<Instruction>, Vec<Error>> {
     let compiler = Compiler::new();
     compiler.generate_assembly(ast)
 }
@@ -237,7 +239,7 @@ impl Compiler {
         self.scopes.len() == 1
     }
 
-    fn generate_assembly(mut self, body: Vec<Expression>) -> Res<Vec<Instruction>, Vec<Error>> {
+    fn generate_assembly(mut self, body: Fragment) -> Res<Vec<Instruction>, Vec<Error>> {
         let errors = body
             .into_iter()
             .filter_map(|line| self.eval_statement(line).err())
@@ -255,9 +257,9 @@ impl Compiler {
         id
     }
 
-    fn eval_statement(&mut self, line: Expression) -> Res {
+    fn eval_statement(&mut self, line: Statement) -> Res {
         match line.typ {
-            ExpressionType::InlineDeclaration { ident, value } => {
+            Stmt::InlineDeclaration { ident, value } => {
                 let value = self.try_eval_const(&value).map_err(|loc| Error {
                     typ: Box::new(ErrorType::ForbiddenInline),
                     location: loc,
@@ -265,7 +267,7 @@ impl Compiler {
                 self.insert_inline_var(ident.symbol, value);
                 Ok(())
             }
-            ExpressionType::Use(modules) => {
+            Stmt::Use(modules) => {
                 for module in modules {
                     if !self.is_root_scope() {
                         return Err(Error {
@@ -284,12 +286,12 @@ impl Compiler {
                 }
                 Ok(())
             }
-            ExpressionType::VarDeclaration { ident } => {
+            Stmt::VarDeclaration { ident } => {
                 self.insert_var(&ident.symbol, line.location)?;
                 Ok(())
             }
-            ExpressionType::Pass => Ok(()),
-            ExpressionType::EndlessLoop { body } => {
+            Stmt::Pass => Ok(()),
+            Stmt::EndlessLoop { body } => {
                 let mark = Self::scope_len(&self.scopes.first().instructions);
                 let id = self.insert_jump_mark();
                 self.jump_marks.insert(id, mark);
@@ -301,7 +303,7 @@ impl Compiler {
 
                 Ok(())
             }
-            ExpressionType::WhileLoop { condition, body } => {
+            Stmt::WhileLoop { condition, body } => {
                 let (left, right, operator) = eval_condition(*condition)?;
 
                 let start_id = self.insert_jump_mark();
@@ -324,13 +326,16 @@ impl Compiler {
 
                 Ok(())
             }
-            ExpressionType::Conditional {
+            Stmt::Conditional {
                 condition,
                 body,
                 paths,
                 alternate,
             } => self.eval_conditional(*condition, body, paths, alternate)?,
-            _ => self.eval_expr(&line),
+            Stmt::Expr(expr) => self.eval_expr(&Expression {
+                typ: expr,
+                location: line.location,
+            }),
         }?;
         Ok(())
     }
@@ -338,9 +343,9 @@ impl Compiler {
     fn eval_conditional(
         &mut self,
         condition: Expression,
-        body: Vec<Expression>,
-        paths: Vec<(Expression, Vec<Expression>)>,
-        alternate: Option<Vec<Expression>>,
+        body: Fragment,
+        paths: Vec<(Expression, Fragment)>,
+        alternate: Option<Fragment>,
     ) -> Result<Result<(), Error>, Error> {
         let location = condition.location;
         let (left, right, operator) = eval_condition(condition)?;
@@ -406,7 +411,7 @@ impl Compiler {
         }
     }
 
-    fn push_scope(&mut self, body: Vec<Expression>, state: ComputerState) -> Res {
+    fn push_scope(&mut self, body: Fragment, state: ComputerState) -> Res {
         self.scopes.push(Scope::with_state(state));
         body.into_iter()
             .try_for_each(|line| self.eval_statement(line))?;
@@ -435,10 +440,10 @@ impl Compiler {
 
     fn try_eval_const(&mut self, expr: &Expression) -> Result<i16, Range> {
         match &expr.typ {
-            ExpressionType::Identifier(name) => self
+            Expr::Identifier(name) => self
                 .get_inline_var(name, expr.location)
                 .map_err(|e| e.location),
-            ExpressionType::BinaryExpr {
+            Expr::BinaryExpr {
                 left,
                 right,
                 operator,
@@ -454,7 +459,7 @@ impl Compiler {
                     Operator::Xor => left ^ right,
                 })
             }
-            ExpressionType::NumericLiteral(value) => Ok(*value),
+            Expr::NumericLiteral(value) => Ok(*value),
             _ => Err(expr.location),
         }
     }
@@ -465,38 +470,37 @@ impl Compiler {
     /// on any compiler error
     pub fn eval_expr(&mut self, expr: &Expression) -> Res {
         match &expr.typ {
-            ExpressionType::NumericLiteral(..) | ExpressionType::Identifier(..) => {
+            Expr::NumericLiteral(..) | Expr::Identifier(..) => {
                 self.put_into_a(expr)?;
             }
-            ExpressionType::BinaryExpr {
+            Expr::BinaryExpr {
                 left,
                 right,
                 operator,
             } => self.eval_binary_expr(left, right, *operator, expr.location)?,
-            ExpressionType::Assignment { ident, value } => {
+            Expr::Assignment { ident, value } => {
                 self.eval_assignment(&ident.symbol, value)?;
             }
-            ExpressionType::IAssignment {
+            Expr::IAssignment {
                 ident,
                 value,
                 operator,
             } => {
                 self.eval_iassignment(ident, value, *operator)?;
             }
-            ExpressionType::Call { args, function } => self.eval_call(function, args)?,
-            ExpressionType::EqExpr { .. } => {
+            Expr::Call { args, function } => self.eval_call(function, args)?,
+            Expr::EqExpr { .. } => {
                 return err!(EqInNormalExpr, expr.location);
             }
-            ExpressionType::Debug => instr!(self, LAL, 17, expr.location),
-            ExpressionType::Member { .. } => return err!(NoConstants, expr.location),
-            _ => todo!("unsupported expression: {:?}", expr),
+            Expr::Debug => instr!(self, LAL, 17, expr.location),
+            Expr::Member { .. } => return err!(NoConstants, expr.location),
         }
         Ok(())
     }
 
     #[must_use]
     pub const fn can_put_into_a(expr: &Expression) -> bool {
-        use ExpressionType as E;
+        use Expr as E;
         match &expr.typ {
             E::NumericLiteral(..) | E::Identifier(..) => true,
             E::Assignment { ident: _, value } => Self::can_put_into_a(value),
@@ -506,7 +510,7 @@ impl Compiler {
 
     #[must_use]
     pub const fn can_put_into_b(expr: &Expression) -> bool {
-        use ExpressionType as E;
+        use Expr as E;
         matches!(expr.typ, E::NumericLiteral(..) | E::Identifier(..))
     }
 
@@ -531,8 +535,8 @@ impl Compiler {
             (true, true) => {
                 if is_commutative
                     && ((self.is_in_a(right) || self.is_in_b(left))
-                        || (matches!(right.typ, ExpressionType::Identifier(..))
-                            && matches!(left.typ, ExpressionType::NumericLiteral(..))))
+                        || (matches!(right.typ, Expr::Identifier(..))
+                            && matches!(left.typ, Expr::NumericLiteral(..))))
                 {
                     self.put_into_a(right)?;
                     self.put_into_b(left)?;
@@ -548,7 +552,7 @@ impl Compiler {
                     swapped = true;
                 } else {
                     // if we just saved a variable we use it to switch
-                    if let ExpressionType::Assignment { ident, value: _ } = &right.typ {
+                    if let Expr::Assignment { ident, value: _ } = &right.typ {
                         instr!(
                             self,
                             LB,
@@ -567,7 +571,7 @@ impl Compiler {
             }
             (false, false) => {
                 self.eval_expr(right)?;
-                if let ExpressionType::Assignment { ident, value: _ } = &right.typ {
+                if let Expr::Assignment { ident, value: _ } = &right.typ {
                     self.eval_expr(left)?;
                     instr!(
                         self,
@@ -600,7 +604,7 @@ impl Compiler {
     fn eval_iassignment(&mut self, ident: &Ident, value: &Expression, operator: Operator) -> Res {
         self.eval_expr(value)?;
         self.put_into_b(&Expression {
-            typ: ExpressionType::Identifier(ident.symbol.clone()),
+            typ: Expr::Identifier(ident.symbol.clone()),
             location: value.location,
         })?;
 
@@ -631,9 +635,9 @@ impl Compiler {
     /// on any compiler error
     pub fn try_get_constant(&mut self, value: &Expression) -> Option<i16> {
         match &value.typ {
-            ExpressionType::NumericLiteral(value) => Some(*value),
-            ExpressionType::Identifier(symbol) => self.get_inline_var(symbol, value.location).ok(),
-            ExpressionType::BinaryExpr { .. } => self.try_eval_const(value).ok(),
+            Expr::NumericLiteral(value) => Some(*value),
+            Expr::Identifier(symbol) => self.get_inline_var(symbol, value.location).ok(),
+            Expr::BinaryExpr { .. } => self.try_eval_const(value).ok(),
             _ => None,
         }
     }
@@ -657,7 +661,7 @@ impl Compiler {
     ///
     /// if variable doesn't exist or called on a wrong expression
     pub fn put_into_a(&mut self, expr: &Expression) -> Res {
-        use ExpressionType as E;
+        use Expr as E;
         match &expr.typ {
             E::NumericLiteral(value) => {
                 self.put_a_number(*value, expr.location);
@@ -703,7 +707,7 @@ impl Compiler {
     ///
     /// if variable doesn't exist or called on a wrong expression
     pub fn put_into_b(&mut self, expr: &Expression) -> Res {
-        use ExpressionType as E;
+        use Expr as E;
         match &expr.typ {
             E::NumericLiteral(value) => {
                 self.put_b_number(*value, expr.location);
@@ -744,7 +748,7 @@ impl Compiler {
     }
 
     fn is_in_a(&self, expr: &Expression) -> bool {
-        use ExpressionType as E;
+        use Expr as E;
         match &expr.typ {
             E::NumericLiteral(value) => {
                 self.last_scope().state.a == RegisterContents::Number(*value)
@@ -760,7 +764,7 @@ impl Compiler {
     }
 
     fn is_in_b(&self, expr: &Expression) -> bool {
-        use ExpressionType as E;
+        use Expr as E;
         match &expr.typ {
             E::NumericLiteral(value) => {
                 self.last_scope().state.b == RegisterContents::Number(*value)
@@ -798,7 +802,7 @@ impl Compiler {
     }
 
     fn eval_call(&mut self, function: &Expression, args: &Vec<Expression>) -> Res {
-        use ExpressionType as E;
+        use Expr as E;
         let module;
         let method;
         match &function.typ {
@@ -897,7 +901,7 @@ impl Compiler {
 fn eval_condition(
     condition: Expression,
 ) -> Res<(Box<Expression>, Box<Expression>, EqualityOperator)> {
-    let ExpressionType::EqExpr {
+    let Expr::EqExpr {
         left,
         right,
         operator,
