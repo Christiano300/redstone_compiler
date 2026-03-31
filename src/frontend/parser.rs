@@ -1,7 +1,6 @@
 use std::collections::VecDeque;
 
 use crate::{
-    err,
     error::Error,
     frontend::{ErrorType, Range},
 };

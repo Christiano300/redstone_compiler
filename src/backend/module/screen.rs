@@ -1,10 +1,9 @@
 use crate::{
     backend::compiler::Compiler,
     frontend::{Expression, Range},
-    instr,
 };
 
-use super::{arg_parse, Arg, Call, Error, ErrorType, Res};
+use super::{Arg, Call, Error, ErrorType, Res, arg_parse};
 
 /*
 Screen:

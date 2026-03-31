@@ -44,12 +44,10 @@ const FLIP: i16 = 2;
 
 use crate::{
     backend::compiler::Compiler,
-    err,
     frontend::{Expression, ExpressionType},
-    instr, modul,
 };
 
-use super::{Arg, Call, ErrorType, Res, arg_parse, screen::put_xy};
+use super::{Arg, Call, ErrorType, Res, arg_parse, modul, screen::put_xy};
 
 modul!(set set_at fill fill_xy fill_screen flip color_of);
 

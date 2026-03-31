@@ -3,12 +3,10 @@ use crate::{
         Compiler,
         module::{Arg, arg_parse},
     },
-    err,
     error::Error,
-    instr, modul,
 };
 
-use super::{Call, ErrorType, Res};
+use super::{Call, ErrorType, Res, modul};
 
 modul!(read write);
 
