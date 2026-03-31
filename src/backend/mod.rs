@@ -1,8 +1,9 @@
+#[macro_use]
 mod compiler;
 mod error;
 pub mod instruction;
-#[macro_use]
 mod module;
+mod target;
 mod types;
 
 pub use compiler::compile_program;

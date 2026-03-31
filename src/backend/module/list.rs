@@ -12,12 +12,10 @@ const POINTER: &str = "list_ptr";
 
 use crate::{
     backend::{RamPage, RegisterContents, compiler::Compiler},
-    err,
     frontend::{ExpressionType, Range},
-    instr, modul,
 };
 
-use super::{Arg, Call, Error, ErrorType, Res, arg_parse};
+use super::{Arg, Call, Error, ErrorType, Res, arg_parse, modul};
 
 pub fn init(compiler: &mut Compiler, location: Range) -> Res {
     if is_initialized(compiler) {

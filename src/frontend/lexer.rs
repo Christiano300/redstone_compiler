@@ -1,8 +1,8 @@
 use std::{fmt::Debug, iter::Peekable};
 
-use crate::{err, error::Error};
+use crate::error::Error;
 
-use super::{eq_operator, operator, EqualityOperator as EqOp, Location, Operator, Range};
+use super::{EqualityOperator as EqOp, Location, Operator, Range, eq_operator, operator};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TokenType {

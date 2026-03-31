@@ -8,7 +8,6 @@ use vec1::{Vec1, vec1};
 
 use crate::{
     backend::{ComputerState, Instr, RegisterContents, Scope, module::Call},
-    err,
     error::Error,
     frontend::{EqualityOperator, Expression, ExpressionType, Ident, Operator, Range},
 };
@@ -24,7 +23,6 @@ const VAR_SLOTS: usize = 32;
 
 type Res<T = (), E = Error> = Result<T, E>;
 
-#[macro_export]
 macro_rules! instr {
     ($self:ident, $variant:ident, $arg:expr, $loc:expr) => {{
         const_assert!($crate::backend::InstructionVariant::$variant.has_arg(),);

@@ -5,7 +5,6 @@ mod ram;
 mod screen;
 
 use crate::{
-    err,
     error::Error,
     frontend::{Expression, Range},
 };
@@ -80,7 +79,6 @@ fn arg_parse<'a, const COUNT: usize>(
     Ok(res)
 }
 
-#[macro_export]
 macro_rules! modul {
     ( $($method:ident)* ) => {
         pub fn module(compiler: &mut Compiler, call: &Call) -> Res {
@@ -94,5 +92,7 @@ macro_rules! modul {
         }
     }
 }
+
+use modul;
 
 type Res<T = ()> = Result<T, Error>;

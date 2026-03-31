@@ -3,7 +3,6 @@ use std::fmt::{Debug, Display};
 
 use crate::frontend::Range;
 
-#[macro_export]
 macro_rules! err {
     ($type:ident, $loc:expr) => {
         Err($crate::error::Error {
