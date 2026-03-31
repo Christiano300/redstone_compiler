@@ -14,28 +14,49 @@ impl std::fmt::Debug for Ident {
     }
 }
 
+pub struct Statement {
+    pub typ: Stmt,
+    pub location: Range,
+}
+
+/// Sequence of statements, either a program, function (theoretically) or conditional body.
+pub type Fragment = Vec<Statement>;
+
 #[derive(Debug, Default)]
-pub enum ExpressionType {
+pub enum Stmt {
+    Expr(Expr),
     InlineDeclaration {
         ident: Ident,
         value: Box<Expression>,
     },
+    VarDeclaration {
+        ident: Ident,
+    },
     Use(Vec1<Ident>),
     Conditional {
         condition: Box<Expression>,
-        body: Vec<Expression>,
-        paths: Vec<(Expression, Vec<Expression>)>,
-        alternate: Option<Vec<Expression>>,
+        body: Fragment,
+        paths: Vec<(Expression, Fragment)>,
+        alternate: Option<Fragment>,
     },
     EndlessLoop {
-        body: Vec<Expression>,
+        body: Fragment,
     },
     WhileLoop {
         condition: Box<Expression>,
-        body: Vec<Expression>,
+        body: Fragment,
     },
     #[default]
     Pass,
+}
+
+pub struct Expression {
+    pub typ: Expr,
+    pub location: Range,
+}
+
+#[derive(Debug)]
+pub enum Expr {
     BinaryExpr {
         left: Box<Expression>,
         right: Box<Expression>,
@@ -57,9 +78,7 @@ pub enum ExpressionType {
         value: Box<Expression>,
         operator: Operator,
     },
-    VarDeclaration {
-        ident: Ident,
-    },
+
     Member {
         object: Box<Expression>,
         property: Ident,
@@ -71,17 +90,30 @@ pub enum ExpressionType {
     Debug,
 }
 
-pub struct Expression {
-    pub typ: ExpressionType,
-    pub location: Range,
-}
-
 impl std::fmt::Debug for Expression {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if f.alternate() {
             write!(f, "{:#?} at {:?}", self.typ, self.location)
         } else {
             write!(f, "{:?} at {:?}", self.typ, self.location)
+        }
+    }
+}
+
+impl std::fmt::Debug for Statement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Stmt::Expr(expr) = &self.typ {
+            if f.alternate() {
+                write!(f, "{:#?} at {:?}", expr, self.location)
+            } else {
+                write!(f, "{:?} at {:?}", expr, self.location)
+            }
+        } else {
+            if f.alternate() {
+                write!(f, "{:#?} at {:?}", self.typ, self.location)
+            } else {
+                write!(f, "{:?} at {:?}", self.typ, self.location)
+            }
         }
     }
 }

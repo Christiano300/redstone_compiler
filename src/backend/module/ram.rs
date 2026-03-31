@@ -6,7 +6,7 @@ ram.copy(from, to) # also return
 
 use crate::{
     backend::{RamPage, compiler::Compiler},
-    frontend::{Expression, ExpressionType, Range},
+    frontend::{Expr, Expression, Range},
 };
 
 use super::{Arg, Call, ErrorType, Res, arg_parse, modul};
@@ -50,7 +50,7 @@ fn write(compiler: &mut Compiler, call: &Call) -> Res {
         }
         (false, false) => {
             compiler.eval_expr(value)?;
-            if let ExpressionType::Assignment { ident, value: _ } = &value.typ {
+            if let Expr::Assignment { ident, value: _ } = &value.typ {
                 put_address(compiler, address, call.location)?;
                 instr!(
                     compiler,
@@ -93,7 +93,7 @@ fn put_address(compiler: &mut Compiler, address: &Expression, location: Range) -
             // if can_put_into_b is false and
             // can_put_into_a is true is must be an assigmnent
             compiler.put_into_a(address)?;
-            if let ExpressionType::Assignment { ident, value: _ } = &address.typ {
+            if let Expr::Assignment { ident, value: _ } = &address.typ {
                 instr!(
                     compiler,
                     LB,

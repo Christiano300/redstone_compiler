@@ -44,7 +44,7 @@ const FLIP: i16 = 2;
 
 use crate::{
     backend::compiler::Compiler,
-    frontend::{Expression, ExpressionType},
+    frontend::{Expr, Expression},
 };
 
 use super::{Arg, Call, ErrorType, Res, arg_parse, modul, screen::put_xy};
@@ -248,10 +248,10 @@ fn get_color(color: &str) -> Option<i16> {
 
 fn is_const_color(expr: &Expression) -> Option<i16> {
     match &expr.typ {
-        ExpressionType::Member { object, property } => {
+        Expr::Member { object, property } => {
             let color = get_color(&property.symbol);
             match color {
-                Some(_) if matches!(&object.typ, ExpressionType::Identifier(name) if name == "colorscreen") => {
+                Some(_) if matches!(&object.typ, Expr::Identifier(name) if name == "colorscreen") => {
                     color
                 }
                 _ => None,
@@ -261,13 +261,13 @@ fn is_const_color(expr: &Expression) -> Option<i16> {
     }
 }
 
-fn is_color_of_call(expr: &ExpressionType) -> bool {
+fn is_color_of_call(expr: &Expr) -> bool {
     match expr {
-        ExpressionType::Call { args, function } => match &function.typ {
-            ExpressionType::Member { object, property }
+        Expr::Call { args, function } => match &function.typ {
+            Expr::Member { object, property }
                 if args.len() == 1 && Compiler::can_put_into_a(&args[0]) =>
             {
-                matches!(&object.typ, ExpressionType::Identifier(name) if name == "colorscreen")
+                matches!(&object.typ, Expr::Identifier(name) if name == "colorscreen")
                     && &property.symbol == "color_of"
             }
             _ => false,

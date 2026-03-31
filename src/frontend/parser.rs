@@ -2,10 +2,10 @@ use std::collections::VecDeque;
 
 use crate::{
     error::Error,
-    frontend::{ErrorType, Range},
+    frontend::{ErrorType, Fragment, Range, Statement, Stmt},
 };
 
-use super::{EqualityOperator, Expression, ExpressionType, Ident, Operator, Token, TokenType};
+use super::{EqualityOperator, Expr, Expression, Ident, Operator, Token, TokenType};
 
 #[derive(Default)]
 pub struct Parser {
@@ -13,6 +13,8 @@ pub struct Parser {
 }
 
 type Res<T = Expression, E = Error> = Result<T, E>;
+
+type ResStmt<E = Error> = Res<Statement, E>;
 
 macro_rules! match_fn {
     ($pattern:pat $(if $guard:expr)? $(,)?) => {
@@ -70,7 +72,7 @@ impl Parser {
     /// # Errors
     ///
     /// when any error occurs
-    pub fn produce_ast(&mut self, tokens: Vec<Token>) -> Res<Vec<Expression>, Vec<Error>> {
+    pub fn produce_ast(&mut self, tokens: Vec<Token>) -> Res<Vec<Statement>, Vec<Error>> {
         self.tokens = VecDeque::from(tokens);
 
         let mut body = vec![];
@@ -88,15 +90,15 @@ impl Parser {
         Ok(body)
     }
 
-    fn parse_statement(&mut self) -> Res {
+    fn parse_statement(&mut self) -> ResStmt {
         let current = self.at();
         Ok(match current.typ {
             TokenType::Inline => self.parse_inline_declaration()?,
             TokenType::If => self.parse_conditional()?,
             TokenType::Pass => {
                 let token = self.eat();
-                Expression {
-                    typ: ExpressionType::Pass,
+                Statement {
+                    typ: Stmt::Pass,
                     location: token.location,
                 }
             }
@@ -104,11 +106,17 @@ impl Parser {
             TokenType::Var => self.parse_var_declaration()?,
             TokenType::Forever => self.parse_endless()?,
             TokenType::While => self.parse_while()?,
-            _ => self.parse_expression()?,
+            _ => {
+                let expr = self.parse_expression()?;
+                Statement {
+                    typ: Stmt::Expr(expr.typ),
+                    location: expr.location,
+                }
+            }
         })
     }
 
-    fn parse_conditional(&mut self) -> Res {
+    fn parse_conditional(&mut self) -> ResStmt {
         let start = self.eat().location;
         let (condition, body) = self.parse_conditional_branch()?;
         // self.at is now elif, else or end
@@ -138,8 +146,8 @@ impl Parser {
         let end = self
             .eat_if_or(match_fn!(TokenType::End), ErrorType::MissingEnd, start)?
             .location;
-        Ok(Expression {
-            typ: ExpressionType::Conditional {
+        Ok(Statement {
+            typ: Stmt::Conditional {
                 condition: Box::new(condition),
                 body,
                 paths,
@@ -149,7 +157,7 @@ impl Parser {
         })
     }
 
-    fn parse_conditional_branch(&mut self) -> Res<(Expression, Vec<Expression>)> {
+    fn parse_conditional_branch(&mut self) -> Res<(Expression, Fragment)> {
         let condition = self.parse_expression()?;
         let start = self.at().location;
         let mut body = vec![];
@@ -165,7 +173,7 @@ impl Parser {
         Ok((condition, body))
     }
 
-    fn parse_endless(&mut self) -> Res {
+    fn parse_endless(&mut self) -> ResStmt {
         use TokenType as T;
         let start = self.eat().location;
         let mut body = vec![];
@@ -178,13 +186,13 @@ impl Parser {
         if body.is_empty() {
             return err!(EmptyBlock, start + self.at().location);
         }
-        Ok(Expression {
-            typ: ExpressionType::EndlessLoop { body },
+        Ok(Statement {
+            typ: Stmt::EndlessLoop { body },
             location: start + end,
         })
     }
 
-    fn parse_while(&mut self) -> Res {
+    fn parse_while(&mut self) -> ResStmt {
         use TokenType as T;
         let start = self.eat().location;
         let condition = self.parse_expression()?;
@@ -196,8 +204,8 @@ impl Parser {
         if body.is_empty() {
             return err!(EmptyBlock, start + self.at().location);
         }
-        Ok(Expression {
-            typ: ExpressionType::WhileLoop {
+        Ok(Statement {
+            typ: Stmt::WhileLoop {
                 condition: Box::from(condition),
                 body,
             },
@@ -205,7 +213,7 @@ impl Parser {
         })
     }
 
-    fn parse_use_statement(&mut self) -> Res {
+    fn parse_use_statement(&mut self) -> ResStmt {
         use TokenType as T;
         let start = self.eat().location;
         let token = self.eat();
@@ -227,19 +235,19 @@ impl Parser {
                 _ => return err!(InvalidModuleName, token.location),
             }
         }
-        Ok(Expression {
+        Ok(Statement {
             location: start + imports.last().location,
-            typ: ExpressionType::Use(imports),
+            typ: Stmt::Use(imports),
         })
     }
 
-    fn parse_var_declaration(&mut self) -> Res {
+    fn parse_var_declaration(&mut self) -> ResStmt {
         use TokenType as T;
         let start = self.eat().location;
         let token = self.eat();
         match token.typ {
-            T::Identifier(symbol) => Ok(Expression {
-                typ: ExpressionType::VarDeclaration {
+            T::Identifier(symbol) => Ok(Statement {
+                typ: Stmt::VarDeclaration {
                     ident: Ident {
                         symbol,
                         location: token.location,
@@ -251,7 +259,7 @@ impl Parser {
         }
     }
 
-    fn parse_inline_declaration(&mut self) -> Res {
+    fn parse_inline_declaration(&mut self) -> ResStmt {
         let start = self.eat().location;
         let token = self.eat();
         let TokenType::Identifier(ident) = token.typ else {
@@ -262,8 +270,8 @@ impl Parser {
 
         let value = self.parse_expression()?;
         let end = value.location;
-        Ok(Expression {
-            typ: ExpressionType::InlineDeclaration {
+        Ok(Statement {
+            typ: Stmt::InlineDeclaration {
                 ident: Ident {
                     symbol: ident,
                     location: token.location,
@@ -282,14 +290,14 @@ impl Parser {
         let left = self.parse_i_assignment()?;
 
         if matches!(self.at().typ, TokenType::Equals) {
-            let ExpressionType::Identifier(name) = left.typ else {
+            let Expr::Identifier(name) = left.typ else {
                 return err!(InvalidAssignment, self.at().location);
             };
             self.eat();
             let value = self.parse_assignment()?;
             let end = value.location;
             return Ok(Expression {
-                typ: ExpressionType::Assignment {
+                typ: Expr::Assignment {
                     ident: Ident {
                         symbol: name,
                         location: left.location,
@@ -307,14 +315,14 @@ impl Parser {
         let left = self.parse_eq_expression()?;
 
         if let TokenType::IOperator(operator) = self.at().typ {
-            let ExpressionType::Identifier(ref name) = left.typ else {
+            let Expr::Identifier(ref name) = left.typ else {
                 return err!(InvalidAssignment, left.location);
             };
             self.eat();
             let value = self.parse_i_assignment()?;
             let location = left.location + value.location;
             return Ok(Expression {
-                typ: ExpressionType::IAssignment {
+                typ: Expr::IAssignment {
                     ident: Ident {
                         symbol: name.clone(),
                         location: left.location,
@@ -347,7 +355,7 @@ impl Parser {
             let right = self.parse_additive()?;
             let location = left.location + right.location;
             left = Expression {
-                typ: ExpressionType::EqExpr {
+                typ: Expr::EqExpr {
                     left: Box::from(left),
                     right: Box::from(right),
                     operator,
@@ -377,7 +385,7 @@ impl Parser {
             let right = self.parse_multiplicative()?;
             let location = left.location + right.location;
             left = Expression {
-                typ: ExpressionType::BinaryExpr {
+                typ: Expr::BinaryExpr {
                     left: Box::from(left),
                     right: Box::from(right),
                     operator,
@@ -407,7 +415,7 @@ impl Parser {
             let right = self.parse_bitop()?;
             let location = left.location + right.location;
             left = Expression {
-                typ: ExpressionType::BinaryExpr {
+                typ: Expr::BinaryExpr {
                     left: Box::from(left),
                     right: Box::from(right),
                     operator,
@@ -437,7 +445,7 @@ impl Parser {
             let right = self.parse_call_member()?;
             let location = left.location + right.location;
             left = Expression {
-                typ: ExpressionType::BinaryExpr {
+                typ: Expr::BinaryExpr {
                     left: Box::from(left),
                     right: Box::from(right),
                     operator,
@@ -467,7 +475,7 @@ impl Parser {
 
         let location = caller.location + end;
         Ok(Expression {
-            typ: ExpressionType::Call {
+            typ: Expr::Call {
                 args,
                 function: Box::new(caller),
             },
@@ -516,13 +524,13 @@ impl Parser {
             let dot = self.eat().location;
             let property = self.parse_primary()?;
 
-            let ExpressionType::Identifier(name) = property.typ else {
+            let Expr::Identifier(name) = property.typ else {
                 return err!(InvalidDot, dot);
             };
 
             let location = object.location + property.location;
             object = Expression {
-                typ: ExpressionType::Member {
+                typ: Expr::Member {
                     object: Box::new(object),
                     property: Ident {
                         symbol: name,
@@ -541,15 +549,15 @@ impl Parser {
 
         Ok(match token.typ {
             TokenType::Identifier(name) => Expression {
-                typ: ExpressionType::Identifier(name),
+                typ: Expr::Identifier(name),
                 location: token.location,
             },
             TokenType::Number(value) => Expression {
-                typ: ExpressionType::NumericLiteral(value),
+                typ: Expr::NumericLiteral(value),
                 location: token.location,
             },
             TokenType::Debug => Expression {
-                typ: ExpressionType::Debug,
+                typ: Expr::Debug,
                 location: token.location,
             },
             TokenType::OpenParen => {
