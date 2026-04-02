@@ -43,7 +43,7 @@ const PAINT: i16 = 1;
 const FLIP: i16 = 2;
 
 use crate::{
-    backend::compiler::Compiler,
+    backend::{compiler::Compiler, target::Target},
     frontend::{Expr, Expression},
 };
 
@@ -55,7 +55,7 @@ fn fill_screen(compiler: &mut Compiler, call: &Call) -> Res {
     let [color] = arg_parse(compiler, [Arg::Number("color")], call)?;
     match is_const_color(color) {
         Some(color) => compiler.put_a_number(color, call.location),
-        None => compiler.eval_expr(color)?,
+        None => compiler.eval_expression(color)?,
     }
     compiler.save_to_out(SCREENPOS1_REG, call.location);
     compiler.put_a_number(0x0FFF, call.location);
@@ -101,19 +101,19 @@ fn put_xy_color(
                 instr!(compiler, OR, call.location);
             } else if is_color_of_call(&color.typ) {
                 put_xy(compiler, x, y, call.location, 6)?;
-                compiler.eval_expr(color)?;
+                compiler.eval_expression(color)?;
                 instr!(compiler, OR, call.location);
             } else if compiler.try_get_constant(x).is_some()
                 && compiler.try_get_constant(y).is_some()
             {
-                compiler.eval_expr(color)?;
+                compiler.eval_expression(color)?;
                 compiler.switch(call.location)?;
                 put_xy(compiler, x, y, call.location, 6)?;
             } else {
                 put_xy(compiler, x, y, call.location, 6)?;
                 let temp = compiler.insert_temp_var(call.location)?;
                 compiler.save_to(temp, call.location);
-                compiler.eval_expr(color)?;
+                compiler.eval_expression(color)?;
                 instr!(compiler, LB, temp, call.location);
                 compiler.cleanup_temp_var(temp);
             }
@@ -152,7 +152,7 @@ fn fill(compiler: &mut Compiler, call: &Call) -> Res {
     )?;
     load_position_color(compiler, from, color, call)?;
     compiler.save_to_out(SCREENPOS1_REG, call.location);
-    compiler.eval_expr(to)?;
+    compiler.eval_expression(to)?;
     compiler.save_to_out(SCREENPOS2_REG, call.location);
     compiler.put_a_number(PAINT, call.location);
     compiler.save_to_out(SCREENOP_REG, call.location);
@@ -190,20 +190,20 @@ fn load_position_color(
     match (compiler.try_get_constant(position), is_const_color(color)) {
         (None, None) => {
             let temp = compiler.insert_temp_var(call.location)?;
-            compiler.eval_expr(color)?;
+            compiler.eval_expression(color)?;
             compiler.save_to(temp, call.location);
-            compiler.eval_expr(position)?;
+            compiler.eval_expression(position)?;
             instr!(compiler, LB, temp, call.location);
             compiler.cleanup_temp_var(temp);
             instr!(compiler, OR, call.location);
         }
         (None, Some(color)) => {
-            compiler.eval_expr(position)?;
+            compiler.eval_expression(position)?;
             compiler.put_b_number(color, call.location);
             instr!(compiler, OR, call.location);
         }
         (Some(pos), None) => {
-            compiler.eval_expr(color)?;
+            compiler.eval_expression(color)?;
             compiler.put_b_number(pos, call.location);
             instr!(compiler, OR, call.location);
         }
@@ -217,7 +217,7 @@ fn color_of(compiler: &mut Compiler, call: &Call) -> Res {
 
     match compiler.try_get_constant(color) {
         Some(number) => compiler.put_a_number(number, call.location),
-        None => compiler.eval_expr(color)?,
+        None => compiler.eval_expression(color)?,
     }
     Ok(())
 }
@@ -265,7 +265,7 @@ fn is_color_of_call(expr: &Expr) -> bool {
     match expr {
         Expr::Call { args, function } => match &function.typ {
             Expr::Member { object, property }
-                if args.len() == 1 && Compiler::can_put_into_a(&args[0]) =>
+                if args.len() == 1 && Compiler::can_put_into_a(&args[0].typ) =>
             {
                 matches!(&object.typ, Expr::Identifier(name) if name == "colorscreen")
                     && &property.symbol == "color_of"

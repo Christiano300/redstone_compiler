@@ -1,5 +1,5 @@
 use core::panic;
-use std::fmt::{self, Debug};
+use std::fmt::{self, Debug, Write};
 
 use table_enum::table_enum;
 
@@ -149,7 +149,10 @@ impl Debug for Instruction {
     }
 }
 
-use crate::frontend::{EqualityOperator, Range};
+use crate::{
+    backend::target::Output,
+    frontend::{EqualityOperator, Range},
+};
 
 use super::{ComputerState, RamPage, RegisterContents};
 
@@ -249,5 +252,36 @@ impl Instruction {
             }
             _ => {}
         }
+    }
+}
+
+impl Output for Vec<Instruction> {
+    fn repr(&self) -> String {
+        let mut asm_string = String::new();
+        self.iter()
+            .map(|instr| format!("{instr}\n"))
+            .for_each(|line| asm_string.push_str(line.as_str()));
+        asm_string
+    }
+
+    fn repr_bin(&self) -> Option<String> {
+        let mut bin_string = String::new();
+        self.iter()
+            .map(|instr| format!("{:016b}\n", instr.to_bin()))
+            .for_each(|line| bin_string.push_str(line.as_str()));
+        Some(bin_string)
+    }
+
+    fn repr_loc(&self) -> Option<String> {
+        let mut locations = String::new();
+        let mut last = None;
+        for instr in self {
+            if last != Some(instr.orig_location) {
+                let _ = writeln!(locations, "{:?}", instr.orig_location);
+                last = Some(instr.orig_location);
+            }
+            let _ = writeln!(locations, "\t{instr}");
+        }
+        Some(locations)
     }
 }

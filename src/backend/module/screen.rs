@@ -1,5 +1,5 @@
 use crate::{
-    backend::compiler::Compiler,
+    backend::{compiler::Compiler, target::Target},
     frontend::{Expression, Range},
 };
 
@@ -54,7 +54,7 @@ fn screen_operation(compiler: &mut Compiler, call: &Call, op: u8) -> Res {
 fn whole_pixel_operation(compiler: &mut Compiler, call: &Call, op: u8) -> Res {
     let args = arg_parse(compiler, [Arg::Number("pos")], call)?;
 
-    compiler.eval_expr(args[0])?;
+    compiler.eval_expression(args[0])?;
     instr!(compiler, SVA, SCREENPOS_REG, call.location);
     write_screenop(compiler, op, call.location);
 
@@ -87,12 +87,12 @@ pub fn put_xy(
             compiler.put_a_number(upper << offset | lower, location);
         }
         (Some(upper), None) => {
-            compiler.eval_expr(lower)?;
+            compiler.eval_expression(lower)?;
             compiler.put_b_number(upper << offset, location);
             instr!(compiler, OR, location);
         }
         (None, Some(lower)) => {
-            compiler.eval_expr(upper)?;
+            compiler.eval_expression(upper)?;
             instr!(compiler, SUP, offset, location);
             compiler.put_b_number(lower, location);
             instr!(compiler, OR, location);
@@ -100,14 +100,14 @@ pub fn put_xy(
         (None, None) => {
             let simple = Compiler::can_put_into_b(lower);
             if simple {
-                compiler.eval_expr(upper)?;
+                compiler.eval_expression(upper)?;
                 instr!(compiler, SUP, offset, location);
                 compiler.put_into_b(lower)?;
             } else {
                 let temp = compiler.insert_temp_var(location)?;
-                compiler.eval_expr(lower)?;
+                compiler.eval_expression(lower)?;
                 instr!(compiler, SVA, temp, location);
-                compiler.eval_expr(upper)?;
+                compiler.eval_expression(upper)?;
                 instr!(compiler, SUP, offset, location);
                 instr!(compiler, LB, temp, location);
                 compiler.cleanup_temp_var(temp);
