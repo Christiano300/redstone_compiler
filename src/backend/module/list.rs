@@ -11,7 +11,7 @@ const INIT: &str = "list_init";
 const POINTER: &str = "list_ptr";
 
 use crate::{
-    backend::{RamPage, RegisterContents, compiler::Compiler},
+    backend::{RamPage, RegisterContents, compiler::Compiler, target::Target},
     frontend::{Expr, Range},
 };
 
@@ -38,7 +38,7 @@ modul!(add pop length _set_length last at);
 fn add(compiler: &mut Compiler, call: &Call) -> Res {
     let value = arg_parse(compiler, [Arg::Number("value")], call)?[0];
     let pointer = *compiler.get_module_state::<u8>(POINTER).unwrap();
-    compiler.eval_expr(value)?;
+    compiler.eval_expression(value)?;
     if compiler.last_scope().state.b != RegisterContents::Variable(pointer) {
         instr!(compiler, LB, pointer, call.location);
     }
@@ -78,7 +78,7 @@ fn _set_length(compiler: &mut Compiler, call: &Call) -> Res {
     let value = arg_parse(compiler, [Arg::Number("value")], call)?[0];
 
     let pointer = *compiler.get_module_state(POINTER).unwrap();
-    compiler.eval_expr(value)?;
+    compiler.eval_expression(value)?;
 
     instr!(compiler, SVA, pointer, call.location);
     Ok(())
@@ -106,7 +106,7 @@ fn at(compiler: &mut Compiler, call: &Call) -> Res {
     if Compiler::can_put_into_b(address) {
         compiler.put_into_b(address)?;
     } else {
-        compiler.eval_expr(address)?;
+        compiler.eval_expression(address)?;
         if let Expr::Assignment { ident, value: _ } = &address.typ {
             instr!(
                 compiler,

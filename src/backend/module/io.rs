@@ -2,6 +2,7 @@ use crate::{
     backend::{
         Compiler,
         module::{Arg, arg_parse},
+        target::Target,
     },
     error::Error,
 };
@@ -49,7 +50,7 @@ fn write(compiler: &mut Compiler, call: &Call) -> Res {
 
     let slot: u8 = slot.try_into().unwrap_or(0);
 
-    compiler.eval_expr(&call.args[0])?;
+    compiler.eval_expression(&call.args[0])?;
 
     instr!(compiler, SVA, slot + 32, call.location);
 

@@ -1,15 +1,15 @@
 use std::{
-    collections::VecDeque,
     env,
-    fmt::Write as _,
     fs::{self, File, create_dir_all},
     io::{self, Read, Write},
 };
 
+use clap::Parser as CLIParser;
 use colored::{Colorize, CustomColor};
-use redstone_compiler::frontend::{Parser, tokenize};
-
-use redstone_compiler::backend::compile_program;
+use redstone_compiler::{
+    backend::{Compiler, Output, Target},
+    frontend::{Parser, tokenize},
+};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -21,7 +21,7 @@ const fn color_from_hex(n: i32) -> CustomColor {
     }
 }
 
-#[allow(clippy::unreadable_literal)]
+#[allow(clippy::unreadable_literal)] // I think they are quite readable
 const REDSTONE: [CustomColor; 8] = [
     color_from_hex(0xEE0F00),
     color_from_hex(0xE20F00),
@@ -43,29 +43,45 @@ fn redstone_color_print(str: &str) {
     }
 }
 
-fn has_arg(args: &mut VecDeque<String>, arg: &'static str) -> bool {
-    if args.contains(&arg.to_string()) {
-        args.retain(|a| a != arg);
-        true
-    } else {
-        false
-    }
+#[derive(CLIParser, Debug)]
+#[command(name = "RedC")]
+#[command(version = VERSION)]
+struct Args {
+    /// Program name or path
+    #[arg(value_name = "PROGRAM")]
+    program: Option<String>,
+
+    /// Enable debug output
+    #[arg(short, long)]
+    dbg: bool,
+
+    /// Generate location mapping file
+    #[arg(short, long)]
+    loc: bool,
+
+    /// Target architecture
+    #[arg(short, long, value_name = "TARGET")]
+    target: Option<String>,
 }
 
 fn main() -> io::Result<()> {
-    redstone_color_print(format!("RedC v{VERSION}\n").as_str());
-    let mut args: VecDeque<_> = env::args().collect();
-    args.pop_front();
+    redstone_color_print(format!("Redstone Compiler v{VERSION}\n").as_str());
 
-    let debug = has_arg(&mut args, "--dbg");
+    let args = Args::parse();
 
-    let program = match args.pop_front() {
+    let program = match args.program {
         None => input("Enter program or leave empty for repl: ")?,
         Some(p) => p,
     };
 
     if program.is_empty() {
-        return repl();
+        return match args.target.map(|t| t.to_lowercase()).as_deref() {
+            Some("mcn-16") | None => repl(Compiler::new()),
+            Some(other) => {
+                eprintln!("Unknown target: {other}");
+                return Ok(());
+            }
+        };
     }
 
     let dir = if fs::metadata(format!("{program}/{program}.🖥️")).is_ok()
@@ -88,14 +104,40 @@ fn main() -> io::Result<()> {
     let mut code = String::new();
     file.read_to_string(&mut code)?;
 
-    let tokens = match tokenize(code.as_str()) {
+    match args.target.map(|t| t.to_lowercase()).as_deref() {
+        Some("mcn-16") | None => run_compiler(
+            Compiler::new(),
+            &code,
+            &path,
+            &dir,
+            &program,
+            args.dbg,
+            args.loc,
+        ),
+        Some(other) => {
+            eprintln!("Unknown target: {other}");
+            Ok(())
+        }
+    }
+}
+
+fn run_compiler<T: Target>(
+    mut target: T,
+    code: &str,
+    path: &str,
+    dir: &str,
+    program: &str,
+    dbg: bool,
+    loc: bool,
+) -> io::Result<()> {
+    let tokens = match tokenize(code) {
         Ok(tokens) => tokens,
         Err(err) => {
-            err.pretty_print(code.as_str(), path.as_str());
+            err.pretty_print(code, path);
             return Ok(());
         }
     };
-    if debug {
+    if dbg {
         println!("{tokens:#?}");
     }
 
@@ -104,51 +146,34 @@ fn main() -> io::Result<()> {
         Ok(ast) => ast,
         Err(errs) => {
             for err in errs {
-                err.pretty_print(code.as_str(), path.as_str());
+                err.pretty_print(code, path);
             }
             return Ok(());
         }
     };
-    if debug {
+    if dbg {
         println!("{ast:#?}");
     }
 
-    let assembly = match compile_program(ast) {
+    let assembly = match target.compile_program(ast) {
         Ok(assembly) => assembly,
         Err(errs) => {
             for err in errs {
-                err.pretty_print(code.as_str(), path.as_str());
+                err.pretty_print(code, path);
             }
             return Ok(());
         }
     };
 
-    let mut asm_string = String::new();
-    assembly
-        .iter()
-        .map(|instr| format!("{instr}\n"))
-        .for_each(|line| asm_string.push_str(line.as_str()));
+    let asm_string = assembly.repr();
 
     fs::write(format!("{dir}/{program}.asm"), asm_string)?;
 
-    let mut bin_string = String::new();
-    assembly
-        .iter()
-        .map(|instr| format!("{:016b}\n", instr.to_bin()))
-        .for_each(|line| bin_string.push_str(line.as_str()));
+    if let Some(bin_string) = assembly.repr_bin() {
+        fs::write(format!("{dir}/{program}.bin"), bin_string)?;
+    }
 
-    fs::write(format!("{dir}/{program}.bin"), bin_string)?;
-
-    if has_arg(&mut args, "--loc") {
-        let mut locations = String::new();
-        let mut last = None;
-        for instr in &assembly {
-            if last != Some(instr.orig_location) {
-                let _ = writeln!(locations, "{:?}", instr.orig_location);
-                last = Some(instr.orig_location);
-            }
-            let _ = writeln!(locations, "\t{instr}");
-        }
+    if loc && let Some(locations) = assembly.repr_loc() {
         fs::write(format!("{dir}/{program}.loc"), locations)?;
     }
 
@@ -170,7 +195,7 @@ fn input(prompt: &str) -> Result<String, io::Error> {
     Ok(contents.trim().to_owned())
 }
 
-fn repl() -> io::Result<()> {
+fn repl<T: Target>(mut target: T) -> io::Result<()> {
     let mut parser = Parser::new();
     println!("Repl v{VERSION}");
     loop {
@@ -202,7 +227,7 @@ fn repl() -> io::Result<()> {
         };
         println!("{ast:#?}");
 
-        let code = compile_program(ast);
+        let code = target.compile_program(ast);
         match code {
             Ok(code) => println!("{code:#?}"),
             Err(err) => err.into_iter().for_each(|err| {

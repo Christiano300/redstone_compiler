@@ -5,7 +5,7 @@ ram.copy(from, to) # also return
 */
 
 use crate::{
-    backend::{RamPage, compiler::Compiler},
+    backend::{RamPage, compiler::Compiler, target::Target},
     frontend::{Expr, Expression, Range},
 };
 
@@ -37,19 +37,19 @@ fn write(compiler: &mut Compiler, call: &Call) -> Res {
     )?;
 
     match (
-        Compiler::can_put_into_a(value),
+        Compiler::can_put_into_a(&value.typ),
         Compiler::can_put_into_b(address),
     ) {
         (true, _) => {
             put_address(compiler, address, call.location)?;
-            compiler.put_into_a(value)?;
+            compiler.put_into_a(&value.typ, value.location)?;
         }
         (false, true) => {
-            compiler.eval_expr(value)?;
+            compiler.eval_expression(value)?;
             put_address(compiler, address, call.location)?;
         }
         (false, false) => {
-            compiler.eval_expr(value)?;
+            compiler.eval_expression(value)?;
             if let Expr::Assignment { ident, value: _ } = &value.typ {
                 put_address(compiler, address, call.location)?;
                 instr!(
@@ -89,10 +89,10 @@ fn put_address(compiler: &mut Compiler, address: &Expression, location: Range) -
     } else {
         if Compiler::can_put_into_b(address) {
             compiler.put_into_b(address)?;
-        } else if Compiler::can_put_into_a(address) {
+        } else if Compiler::can_put_into_a(&address.typ) {
             // if can_put_into_b is false and
             // can_put_into_a is true is must be an assigmnent
-            compiler.put_into_a(address)?;
+            compiler.put_into_a(&address.typ, address.location)?;
             if let Expr::Assignment { ident, value: _ } = &address.typ {
                 instr!(
                     compiler,
@@ -102,7 +102,7 @@ fn put_address(compiler: &mut Compiler, address: &Expression, location: Range) -
                 );
             }
         } else {
-            compiler.eval_expr(address)?;
+            compiler.eval_expression(address)?;
             compiler.switch(location)?;
         }
         instr!(compiler, RC, location);
