@@ -70,6 +70,8 @@ pub trait Target {
 
         Ok(self.get_output())
     }
+
+    fn reset(&mut self) {}
 }
 
 pub trait Output: Debug {
