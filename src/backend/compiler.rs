@@ -2,6 +2,7 @@ use std::{
     any::Any,
     collections::{HashMap, HashSet},
     fmt::Debug,
+    mem,
 };
 
 use vec1::{Vec1, vec1};
@@ -867,11 +868,17 @@ impl Target for Compiler {
     }
 
     fn get_output(&mut self) -> Self::Output {
-        let main_scope = vec![Instr::Scope(self.scopes.remove(0).unwrap().instructions)];
+        let main_scope = vec![Instr::Scope(
+            mem::take(self.scopes.first_mut()).instructions,
+        )];
         let mut instructions = vec![];
         Self::flatten_scope(main_scope, &mut instructions);
         Self::insert_disc_jumps(&mut instructions, &mut self.jump_marks);
         Self::replace_jump_marks(&mut instructions, &self.jump_marks);
         instructions
+    }
+
+    fn reset(&mut self) {
+        drop(mem::take(self));
     }
 }

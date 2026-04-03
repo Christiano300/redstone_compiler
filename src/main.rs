@@ -228,6 +228,7 @@ fn repl<T: Target>(mut target: T) -> io::Result<()> {
         println!("{ast:#?}");
 
         let code = target.compile_program(ast);
+        target.reset();
         match code {
             Ok(code) => println!("{code:#?}"),
             Err(err) => err.into_iter().for_each(|err| {
