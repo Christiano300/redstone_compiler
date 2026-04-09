@@ -5,11 +5,14 @@ ram.copy(from, to) # also return
 */
 
 use crate::{
-    backend::{RamPage, compiler::Compiler, target::Target},
+    backend::target::Target,
     frontend::{Expr, Expression, Range},
 };
 
-use super::{Arg, Call, ErrorType, Res, arg_parse, modul};
+use super::super::error::Type as ErrorType;
+use super::super::{Compiler, RamPage};
+use super::Res;
+use super::{arg_parse, modul, Arg, Call};
 
 modul!(read write copy);
 

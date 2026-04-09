@@ -1,15 +1,12 @@
-#[macro_use]
-mod compiler;
-mod error;
-pub mod instruction;
-#[macro_use]
-mod module;
-mod target;
-mod types;
+pub mod target;
 
-pub use compiler::Compiler;
-pub use instruction::{Instruction, InstructionVariant};
+#[cfg(feature = "redstone")]
+pub mod redstone;
+
+#[cfg(feature = "w4")]
+pub mod w4;
+
+#[cfg(feature = "redstone")]
+pub use redstone::{Compiler, ErrorType, Instruction, InstructionVariant};
+
 pub use target::{Output, Target};
-
-use error::Type as ErrorType;
-use types::{ComputerState, Instr, RamPage, RegisterContents, Scope};

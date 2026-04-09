@@ -7,9 +7,15 @@ use std::{
 use clap::Parser as CLIParser;
 use colored::{Colorize, CustomColor};
 use redstone_compiler::{
-    backend::{Compiler, Output, Target},
+    backend::{Output, Target},
     frontend::{Parser, tokenize},
 };
+
+#[cfg(feature = "redstone")]
+use redstone_compiler::backend::Compiler;
+
+#[cfg(feature = "w4")]
+use redstone_compiler::backend::w4::W4Compiler;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -76,7 +82,10 @@ fn main() -> io::Result<()> {
 
     if program.is_empty() {
         return match args.target.map(|t| t.to_lowercase()).as_deref() {
+            #[cfg(feature = "redstone")]
             Some("mcn-16") | None => repl(Compiler::new()),
+            #[cfg(feature = "w4")]
+            Some("w4") => repl(W4Compiler::new()),
             Some(other) => {
                 eprintln!("Unknown target: {other}");
                 return Ok(());
@@ -105,8 +114,19 @@ fn main() -> io::Result<()> {
     file.read_to_string(&mut code)?;
 
     match args.target.map(|t| t.to_lowercase()).as_deref() {
+        #[cfg(feature = "redstone")]
         Some("mcn-16") | None => run_compiler(
             Compiler::new(),
+            &code,
+            &path,
+            &dir,
+            &program,
+            args.dbg,
+            args.loc,
+        ),
+        #[cfg(feature = "w4")]
+        Some("w4") => run_compiler(
+            W4Compiler::new(),
             &code,
             &path,
             &dir,

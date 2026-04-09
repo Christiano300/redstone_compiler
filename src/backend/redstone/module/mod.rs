@@ -9,7 +9,8 @@ use crate::{
     frontend::{Expression, Range},
 };
 
-use super::{Compiler, ErrorType};
+use super::error::Type as ErrorType;
+use super::Compiler;
 
 pub fn call(name: &str, compiler: &mut Compiler, call: &Call) -> Res {
     match name {

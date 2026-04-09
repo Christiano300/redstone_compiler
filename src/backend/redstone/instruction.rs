@@ -149,12 +149,9 @@ impl Debug for Instruction {
     }
 }
 
-use crate::{
-    backend::target::Output,
-    frontend::{EqualityOperator, Range},
-};
-
 use super::{ComputerState, RamPage, RegisterContents};
+use crate::backend::target::Output;
+use crate::frontend::{EqualityOperator, Range};
 
 impl Instruction {
     /// Creates a new [`Instruction`].

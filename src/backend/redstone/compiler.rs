@@ -8,14 +8,19 @@ use std::{
 use vec1::{Vec1, vec1};
 
 use crate::{
-    backend::{ComputerState, Instr, RegisterContents, Scope, module::Call, target::Target},
+    backend::target::Target,
     error::Error,
     frontend::{EqualityOperator, Expr, Expression, Fragment, Ident, Operator, Range},
 };
 
 use super::{
-    ErrorType, Instruction, InstructionVariant,
-    module::{call, exist, init},
+    ComputerState, Instr, RegisterContents, Scope,
+    error::Type as ErrorType,
+};
+
+use super::{
+    Instruction, InstructionVariant,
+    module::{Call, call, exist, init},
 };
 
 use static_assertions::const_assert;

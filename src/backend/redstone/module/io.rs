@@ -1,13 +1,9 @@
-use crate::{
-    backend::{
-        Compiler,
-        module::{Arg, arg_parse},
-        target::Target,
-    },
-    error::Error,
-};
+use crate::{backend::target::Target, error::Error};
 
-use super::{Call, ErrorType, Res, modul};
+use super::super::error::Type as ErrorType;
+use super::super::Compiler;
+use super::Res;
+use super::{arg_parse, modul, Arg, Call};
 
 modul!(read write);
 

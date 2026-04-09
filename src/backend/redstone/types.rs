@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::backend::Instruction;
+use super::instruction::Instruction;
 
 #[derive(Default, Copy, Clone, Debug, PartialEq, Eq)]
 #[allow(unused)]
