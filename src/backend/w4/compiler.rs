@@ -4,7 +4,7 @@ use std::{
     mem,
 };
 
-use vec1::{vec1, Vec1};
+use vec1::{Vec1, vec1};
 
 use crate::{
     backend::target::Target,
@@ -113,6 +113,9 @@ impl W4Compiler {
                     });
                 }
             },
+            E::Identifier(symbol) => {
+                todo!("Function calling");
+            }
             _ => {
                 return Err(Error {
                     typ: Box::new(super::error::Type::UnknownMethod(format!("{:?}", function))),
@@ -205,6 +208,15 @@ impl Target for W4Compiler {
         self.push_scope(body)?;
         let _ = condition;
         Ok(())
+    }
+
+    fn visit_function_decl(
+        &mut self,
+        _ident: Ident,
+        _args: Vec<Ident>,
+        _body: Fragment,
+    ) -> Result<(), Error> {
+        todo!()
     }
 
     fn eval_expr(&mut self, expr: &Expr, location: Range) -> Result<(), Error> {

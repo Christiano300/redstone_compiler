@@ -33,6 +33,13 @@ pub trait Target {
         Ok(())
     }
 
+    fn visit_function_decl(
+        &mut self,
+        ident: Ident,
+        args: Vec<Ident>,
+        body: Fragment,
+    ) -> Result<(), Error>;
+
     fn eval_expression(&mut self, expr: &Expression) -> Result<(), Error> {
         self.eval_expr(&expr.typ, expr.location)
     }
@@ -54,6 +61,9 @@ pub trait Target {
             Stmt::EndlessLoop { body } => self.visit_endless(body, statement.location),
             Stmt::WhileLoop { condition, body } => self.visit_while(*condition, body),
             Stmt::Pass => self.visit_pass(),
+            Stmt::FunctionDeclaration { ident, args, body } => {
+                self.visit_function_decl(ident, args, body)
+            }
         }
     }
 

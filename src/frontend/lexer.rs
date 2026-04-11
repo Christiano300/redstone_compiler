@@ -26,6 +26,7 @@ pub enum TokenType {
     While,
     Pass,
     Debug,
+    Fun,
     Use,
     Var,
     Eof,
@@ -98,6 +99,7 @@ fn keyword(string: String) -> TokenType {
         "use" => TokenType::Use,
         "var" => TokenType::Var,
         "debug" => TokenType::Debug,
+        "fun" => TokenType::Fun,
         _ => TokenType::Identifier(string),
     }
 }

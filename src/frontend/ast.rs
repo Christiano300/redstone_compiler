@@ -48,6 +48,11 @@ pub enum Stmt {
     },
     #[default]
     Pass,
+    FunctionDeclaration {
+        ident: Ident,
+        args: Vec<Ident>,
+        body: Fragment,
+    },
 }
 
 pub struct Expression {

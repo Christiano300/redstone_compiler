@@ -106,6 +106,7 @@ impl Parser {
             TokenType::Var => self.parse_var_declaration()?,
             TokenType::Forever => self.parse_endless()?,
             TokenType::While => self.parse_while()?,
+            TokenType::Fun => self.parse_function_declaration()?,
             _ => {
                 let expr = self.parse_expression()?;
                 Statement {
@@ -279,6 +280,59 @@ impl Parser {
                 value: Box::new(value),
             },
             location: start + end,
+        })
+    }
+
+    fn parse_function_declaration(&mut self) -> ResStmt {
+        let start = self.eat().location;
+        let token = self.eat();
+        let TokenType::Identifier(symbol) = token.typ else {
+            return err!(InvalidFunctionName, token.location);
+        };
+        let mut args = vec![];
+        if matches!(
+            self.at().typ,
+            TokenType::OpenParen | TokenType::OpenFuncParen
+        ) {
+            self.eat();
+            loop {
+                let token = self.eat();
+                if let TokenType::Identifier(name) = token.typ {
+                    args.push(Ident {
+                        symbol: name,
+                        location: token.location,
+                    });
+                } else {
+                    return err!(InvalidParam, token.location);
+                }
+                let next = self.eat();
+                match next.typ {
+                    TokenType::Comma => continue,
+                    TokenType::CloseParen => break,
+                    _ => return err!(ExpectedParen, next.location),
+                }
+            }
+        }
+
+        let mut body = vec![];
+        while !matches!(self.at().typ, TokenType::End | TokenType::Eof) {
+            body.push(self.parse_statement()?);
+        }
+        let end = self.eat_if_or(match_fn!(TokenType::End), ErrorType::MissingEnd, start)?;
+        if body.is_empty() {
+            return err!(EmptyBlock, start + self.at().location);
+        }
+
+        Ok(Statement {
+            typ: Stmt::FunctionDeclaration {
+                ident: Ident {
+                    symbol,
+                    location: token.location,
+                },
+                args,
+                body,
+            },
+            location: start + end.location,
         })
     }
 

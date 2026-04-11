@@ -17,6 +17,7 @@ pub enum Type {
     NormalInEqExpr,
     UseOutsideGlobalScope,
     NoConstants,
+    NoFunctions,
 }
 
 impl ErrorType for Type {
@@ -59,6 +60,7 @@ impl ErrorType for Type {
                 format!("{name} has to be known at compile-time")
             }
             Self::NoConstants => "Constants are only supported inside module calls".to_string(),
+            Self::NoFunctions => "Functions are not supported for the MCN-16 target".to_string(),
         }
     }
 }

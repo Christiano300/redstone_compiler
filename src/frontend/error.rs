@@ -6,6 +6,8 @@ pub enum Type {
     InvalidModuleName,
     InvalidDeclartion,
     InvalidAssignment,
+    InvalidFunctionName,
+    InvalidParam,
     MissingEquals,
     FunctionChaining,
     MissingOpenParen,
@@ -24,6 +26,8 @@ impl ErrorType for Type {
             Self::InvalidModuleName => "Invalid module name",
             Self::InvalidDeclartion => "Expected identifier",
             Self::InvalidAssignment => "Can only assign to identifiers",
+            Self::InvalidFunctionName => "Invalid function name",
+            Self::InvalidParam => "Invalid parameter name",
             Self::MissingEquals => "Expected equals following identifier",
             Self::FunctionChaining => {
                 "You can't chain functions, what do you think this is, Python?"

@@ -13,10 +13,7 @@ use crate::{
     frontend::{EqualityOperator, Expr, Expression, Fragment, Ident, Operator, Range},
 };
 
-use super::{
-    ComputerState, Instr, RegisterContents, Scope,
-    error::Type as ErrorType,
-};
+use super::{ComputerState, Instr, RegisterContents, Scope, error::Type as ErrorType};
 
 use super::{
     Instruction, InstructionVariant,
@@ -840,6 +837,18 @@ impl Target for Compiler {
         self.jump_marks.insert(end_id, end);
 
         Ok(())
+    }
+
+    fn visit_function_decl(
+        &mut self,
+        ident: Ident,
+        _args: Vec<Ident>,
+        _body: Fragment,
+    ) -> Result<(), Error> {
+        Err(Error {
+            typ: Box::new(super::error::Type::NoFunctions),
+            location: ident.location,
+        })
     }
 
     fn eval_expr(&mut self, expr: &Expr, location: Range) -> Result<(), Error> {
