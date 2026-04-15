@@ -10,13 +10,14 @@ redstone = []
 w4 = []
 
 [dependencies]
-clap = { version = "4.5", features = ["derive"] }
+clap = { version = "4.5", features = ["std", "derive"], default-features = false }
 table_enum = "0.3.0"
 vec1 = "1.12.0"
 colored = "3.1.1"
 fastrand = "2.3.0"
 static_assertions = "1.1.0"
-wasm-encoder = "0.245.1"
+wasm-encoder = {version = "0.245.1", features = [], default-features = false}
+wasmprinter = {version = "0.246.2", features = [], default-features = false}
 
 [lints.rust]
 unsafe_code = "forbid"

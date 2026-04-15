@@ -1,16 +1,16 @@
-use crate::{backend::target::Target, error::Error};
+use crate::error::Error;
 
-use super::super::error::Type as ErrorType;
 use super::super::Compiler;
+use super::super::error::Type as ErrorType;
 use super::Res;
-use super::{arg_parse, modul, Arg, Call};
+use super::{Arg, Call, arg_parse, modul};
 
 modul!(read write);
 
 fn read(compiler: &mut Compiler, call: &Call) -> Res {
     let args = arg_parse(compiler, [Arg::Constant("Inslot")], call)?;
 
-    let slot = compiler.try_get_constant(args[0]).unwrap();
+    let slot = compiler.try_get_constant(args[0])?.unwrap();
     if !(0..8).contains(&slot) {
         return Err(Error {
             typ: Box::new(ErrorType::InvalidArgs(
@@ -34,7 +34,7 @@ fn write(compiler: &mut Compiler, call: &Call) -> Res {
         call,
     )?;
 
-    let slot = compiler.try_get_constant(args[1]).unwrap();
+    let slot = compiler.try_get_constant(args[1])?.unwrap();
     if !(0..8).contains(&slot) {
         return Err(Error {
             typ: Box::new(ErrorType::InvalidArgs(

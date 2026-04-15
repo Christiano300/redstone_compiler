@@ -10,15 +10,12 @@ list.at(where) # return
 const INIT: &str = "list_init";
 const POINTER: &str = "list_ptr";
 
-use crate::{
-    backend::target::Target,
-    frontend::{Expr, Range},
-};
+use crate::frontend::{Expr, Range};
 
 use super::super::error::Type as ErrorType;
 use super::super::{Compiler, RamPage, RegisterContents};
 use super::Res;
-use super::{arg_parse, modul, Arg, Call};
+use super::{Arg, Call, arg_parse, modul};
 use crate::error::Error;
 
 pub fn init(compiler: &mut Compiler, location: Range) -> Res {
@@ -123,7 +120,7 @@ fn at(compiler: &mut Compiler, call: &Call) -> Res {
         }
     }
 
-    match compiler.try_get_constant(address) {
+    match compiler.try_get_constant(address)? {
         Some(value)
             if compiler.last_scope().state.ram_page == RamPage::ThisOne((value / 16) as u8) => {}
         _ => instr!(compiler, RC, call.location),

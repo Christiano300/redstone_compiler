@@ -85,7 +85,7 @@ fn main() -> io::Result<()> {
             #[cfg(feature = "redstone")]
             Some("mcn-16") | None => repl(Compiler::new()),
             #[cfg(feature = "w4")]
-            Some("w4") => repl(W4Compiler::new()),
+            Some("w4") => repl(W4Compiler::default()),
             Some(other) => {
                 eprintln!("Unknown target: {other}");
                 return Ok(());
@@ -126,7 +126,7 @@ fn main() -> io::Result<()> {
         ),
         #[cfg(feature = "w4")]
         Some("w4") => run_compiler(
-            W4Compiler::new(),
+            W4Compiler::default(),
             &code,
             &path,
             &dir,
@@ -250,7 +250,7 @@ fn repl<T: Target>(mut target: T) -> io::Result<()> {
         let code = target.compile_program(ast);
         target.reset();
         match code {
-            Ok(code) => println!("{code:#?}"),
+            Ok(code) => println!("{}", code.repr()),
             Err(err) => err.into_iter().for_each(|err| {
                 err.pretty_print(&line, "Repl");
             }),

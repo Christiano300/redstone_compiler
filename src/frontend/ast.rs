@@ -73,7 +73,7 @@ pub enum Expr {
         operator: EqualityOperator,
     },
     Identifier(String),
-    NumericLiteral(i16),
+    NumericLiteral(i32),
     Assignment {
         ident: Ident,
         value: Box<Expression>,

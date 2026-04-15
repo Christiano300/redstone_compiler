@@ -1,4 +1,4 @@
-use std::{fmt::Debug, iter::Peekable};
+use std::{borrow::Cow, fmt::Debug, iter::Peekable};
 
 use crate::error::Error;
 
@@ -6,7 +6,7 @@ use super::{EqualityOperator as EqOp, Location, Operator, Range, eq_operator, op
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TokenType {
-    Number(i16),
+    Number(i32),
     Identifier(String),
     Equals,
     OpenParen,
@@ -70,18 +70,14 @@ enum ErrorType {
     InvalidNumber(String),
     Eof,
     InvalidChar(String),
-    TabIndent,
 }
 
 impl crate::error::ErrorType for ErrorType {
-    fn get_message(&self) -> String {
+    fn get_message(&self) -> Cow<'_, str> {
         match self {
-            Self::InvalidNumber(n) => format!("Invalid number: {n}"),
-            Self::Eof => "Unexpected End of file".to_string(),
-            Self::InvalidChar(c) => format!("Invalid character: {c}"),
-            Self::TabIndent => {
-                "Pleas only format using spaces, tabs break the formatting".to_string()
-            }
+            Self::InvalidNumber(n) => Cow::from(format!("Invalid number: {n}")),
+            Self::Eof => Cow::from("Unexpected End of file"),
+            Self::InvalidChar(c) => Cow::from(format!("Invalid character: {c}")),
         }
     }
 }
@@ -191,7 +187,6 @@ pub fn tokenize(source_code: &str) -> Result<Vec<Token>, Error> {
                 }
             }
             '#' => while !matches!(next(&mut src, &mut current_location), Some('\n') | None) {},
-            '\t' => return err!(TabIndent, Range(current_location, current_location)),
             _ => {
                 if char.is_ascii_digit() {
                     let start = current_location;
@@ -258,7 +253,7 @@ fn read_num(
     first: char,
     src: &mut Peekable<std::str::Chars<'_>>,
     current_location: &mut Location,
-) -> Result<i16, Error> {
+) -> Result<i32, Error> {
     let mut c = src.peek();
 
     if first == '0' {
@@ -316,7 +311,7 @@ fn read_n_num(
     src: &mut Peekable<std::str::Chars<'_>>,
     current_location: &mut Location,
     radix: u32,
-) -> Result<i16, Error> {
+) -> Result<i32, Error> {
     let start = *current_location;
     next(src, current_location);
     let mut c = src.peek();
@@ -333,14 +328,14 @@ fn read_n_num(
         next(src, current_location);
         c = src.peek();
     }
-    u16::from_str_radix(num.as_str(), radix).map_or_else(
+    u32::from_str_radix(num.as_str(), radix).map_or_else(
         |_| {
             err!(
                 ErrorType::InvalidNumber(num),
                 Range(start, *current_location)
             )
         },
-        |u| Ok(u as i16),
+        |u| Ok(u as i32),
     )
 }
 
@@ -404,7 +399,7 @@ mod test {
     #[test]
     fn numbers() {
         let code = "0  1  3  -17  0b1011 0xffff -0b101";
-        let expected: Vec<_> = [0, 1, 3, -17, 11, -1, -5]
+        let expected: Vec<_> = [0, 1, 3, -17, 11, 65535, -5]
             .into_iter()
             .map(TokenType::Number)
             .chain(once(TokenType::Eof))

@@ -4,92 +4,107 @@ use std::{
     mem,
 };
 
-use vec1::{Vec1, vec1};
+use vec1::Vec1;
+use wasm_encoder::{
+    Encode, FunctionSection, ImportSection, Instruction, InstructionSink, Module, TypeSection,
+    ValType,
+};
+use wasmprinter::{Config, PrintFmtWrite};
 
 use crate::{
-    backend::target::Target,
+    backend::{Output, target::Target},
     error::Error,
-    frontend::{Expr, Expression, Fragment, Ident, Range},
+    frontend::{Expr, Expression, Fragment, Operator, Range, Statement, Stmt},
 };
+
+use super::error::Type as ErrorType;
 
 use super::module::Call;
 
-const WASM4_FRAMEBUFFER: u32 = 0xa0;
-
-#[derive(Debug)]
-pub struct W4Compiler {
-    scopes: Vec1<W4Scope>,
-    modules: HashSet<String>,
-    pub variables: Vec<Variable>,
-    pub module_state: HashMap<&'static str, Box<dyn Any>>,
-    strings: Vec<String>,
-    next_var_offset: usize,
+#[derive(Debug, Default)]
+struct BlockScope {
+    variables: HashMap<String, u32>,
 }
 
 #[derive(Debug)]
-struct W4Scope {
-    variables: HashMap<String, usize>,
+struct W4Function {
+    arg_count: u16,
+    index: u32,
 }
 
-impl Default for W4Scope {
-    fn default() -> Self {
-        Self {
-            variables: HashMap::new(),
-        }
-    }
+#[derive(Debug, Default)]
+struct FunctionScope {
+    instr_bytes: Vec<u8>,
+    scopes: Vec1<BlockScope>,
+    next_local: u32,
+    max_locals: u32,
 }
 
-#[derive(Debug)]
-struct Variable {
-    name: String,
-    offset: usize,
-}
-
-#[derive(Debug)]
-pub struct W4Output(Vec<u8>);
-
-impl W4Compiler {
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            scopes: vec1!(W4Scope::default()),
-            modules: HashSet::new(),
-            variables: Vec::new(),
-            module_state: HashMap::new(),
-            strings: Vec::new(),
-            next_var_offset: WASM4_FRAMEBUFFER as usize + (160 * 160 / 4),
-        }
+impl FunctionScope {
+    fn new() -> Self {
+        Self::default()
     }
 
-    pub fn add_string(&mut self, s: &str) -> usize {
-        let offset = self.next_var_offset;
-        self.next_var_offset += s.len() + 1;
-        self.strings.push(s.to_string());
-        offset
+    fn sink(&mut self) -> InstructionSink<'_> {
+        InstructionSink::new(&mut self.instr_bytes)
     }
 
-    fn get_variable_offset(&self, name: &str) -> Option<usize> {
+    fn get_local_index(&self, name: &str) -> Option<u32> {
         for scope in self.scopes.iter().rev() {
-            if let Some(&offset) = scope.variables.get(name) {
-                return Some(offset);
+            if let Some(&index) = scope.variables.get(name) {
+                return Some(index);
             }
         }
         None
     }
 
-    fn allocate_variable(&mut self, name: String) -> usize {
-        let offset = self.next_var_offset;
-        self.variables.push(Variable { name, offset });
-        self.next_var_offset += 4;
-        offset
+    fn insert_var(&mut self, name: &str) -> u32 {
+        let index = self.next_local;
+        self.next_local += 1;
+        if self.next_local > self.max_locals {
+            self.max_locals = self.next_local;
+        }
+        self.scopes
+            .last_mut()
+            .variables
+            .insert(name.to_string(), index);
+        index
     }
 
-    fn push_scope(&mut self, body: Fragment) -> Result<(), Error> {
-        self.scopes.push(W4Scope::default());
+    fn push_scope(&mut self) {
+        self.scopes.push(BlockScope::default());
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct W4Compiler {
+    function_scopes: Vec1<FunctionScope>,
+    modules: HashSet<String>,
+    types: TypeSection,
+    functions: HashMap<String, W4Function>,
+    function_bodies: FunctionSection,
+    pub module_state: HashMap<&'static str, Box<dyn Any>>,
+    strings: Vec<String>,
+    imports: ImportSection,
+}
+
+impl W4Compiler {
+    pub fn func(&mut self) -> &mut FunctionScope {
+        self.function_scopes.last_mut()
+    }
+
+    pub fn instr(&mut self) -> InstructionSink<'_> {
+        self.func().sink()
+    }
+
+    fn push_scope(&mut self, mut body: Fragment) -> Result<(), Error> {
+        self.function_scopes.push(FunctionScope::new());
+        let last = body.pop().unwrap(); // Body cannot be empty
         for line in body {
-            self.eval_statement(line)?;
+            self.eval_statement(line, false)?;
         }
-        self.scopes.pop();
+        self.eval_statement(last, true)?;
+        self.function_scopes.pop();
         Ok(())
     }
 
@@ -105,27 +120,24 @@ impl W4Compiler {
                 }
                 _ => {
                     return Err(Error {
-                        typ: Box::new(super::error::Type::NonexistentModule(format!(
-                            "{:?}",
-                            object
-                        ))),
+                        typ: Box::new(ErrorType::NonexistentModule(format!("{:?}", object))),
                         location: function.location,
                     });
                 }
             },
-            E::Identifier(symbol) => {
+            E::Identifier(_symbol) => {
                 todo!("Function calling");
             }
             _ => {
                 return Err(Error {
-                    typ: Box::new(super::error::Type::UnknownMethod(format!("{:?}", function))),
+                    typ: Box::new(ErrorType::UnknownMethod(format!("{:?}", function))),
                     location: function.location,
                 });
             }
         }
         if !self.modules.contains(module) {
             return Err(Error {
-                typ: Box::new(super::error::Type::UnlodadedModule(module.clone())),
+                typ: Box::new(ErrorType::UnlodadedModule(module.clone())),
                 location: function.location,
             });
         }
@@ -140,94 +152,71 @@ impl W4Compiler {
             },
         )
     }
-}
 
-type Res<T = ()> = Result<T, Error>;
-
-impl Default for W4Compiler {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Target for W4Compiler {
-    type Output = W4Output;
-
-    fn visit_inline_decl(&mut self, _ident: Ident, _value: Expression) -> Result<(), Error> {
-        Ok(())
-    }
-
-    fn visit_var_decl(&mut self, ident: Ident) -> Result<(), Error> {
-        let offset = self.allocate_variable(ident.symbol.clone());
-        self.scopes
-            .last_mut()
-            .variables
-            .insert(ident.symbol, offset);
-        Ok(())
-    }
-
-    fn visit_use(&mut self, modules: Vec1<Ident>, _location: Range) -> Result<(), Error> {
-        use super::module::{exist, init};
-
-        for module in modules {
-            if !exist(&module.symbol) {
-                return Err(Error {
-                    typ: Box::new(super::error::Type::NonexistentModule(module.symbol.clone())),
-                    location: module.location,
-                });
-            }
-            init(&module.symbol, self, module.location)?;
-            self.modules.insert(module.symbol);
-        }
-        Ok(())
-    }
-
-    fn visit_conditional(
-        &mut self,
-        condition: Expression,
-        body: Fragment,
-        paths: Vec<(Expression, Fragment)>,
-        alternate: Option<Fragment>,
-    ) -> Result<(), Error> {
-        self.push_scope(body)?;
-        for (_cond, branch_body) in paths {
-            self.push_scope(branch_body)?;
-        }
-        if let Some(alt_body) = alternate {
-            self.push_scope(alt_body)?;
-        }
-        let _ = condition;
-        Ok(())
-    }
-
-    fn visit_endless(&mut self, body: Fragment, _location: Range) -> Result<(), Error> {
-        self.push_scope(body)
-    }
-
-    fn visit_while(&mut self, condition: Expression, body: Fragment) -> Result<(), Error> {
-        self.push_scope(body)?;
-        let _ = condition;
-        Ok(())
-    }
-
-    fn visit_function_decl(
-        &mut self,
-        _ident: Ident,
-        _args: Vec<Ident>,
-        _body: Fragment,
-    ) -> Result<(), Error> {
-        todo!()
-    }
-
-    fn eval_expr(&mut self, expr: &Expr, location: Range) -> Result<(), Error> {
-        match expr {
-            Expr::NumericLiteral(_value) => {}
-            Expr::Identifier(name) => {
-                if self.get_variable_offset(name).is_none() {
+    fn scan_functions(&mut self, program: &Fragment) -> Res {
+        for line in program {
+            if let Stmt::FunctionDeclaration { ident, args, .. } = &line.typ {
+                if self.functions.contains_key(&ident.symbol) {
                     return Err(Error {
-                        typ: Box::new(super::error::Type::NonexistentVar(name.clone())),
-                        location,
+                        typ: Box::new(ErrorType::DuplicateFunction(ident.symbol.clone())),
+                        location: ident.location,
                     });
+                }
+                let index = self.types.len();
+                self.types
+                    .ty()
+                    .function(vec![ValType::I32; args.len()], [ValType::I32]);
+                self.functions.insert(
+                    ident.symbol.clone(),
+                    W4Function {
+                        arg_count: args.len() as u16,
+                        index,
+                    },
+                );
+            }
+        }
+        Ok(())
+    }
+
+    fn eval_statement(&mut self, statement: Statement, push: bool) -> Res {
+        Ok(match statement.typ {
+            Stmt::Expr(expr) => {
+                self.compile_expr(&expr, push, statement.location)?;
+            }
+            Stmt::FunctionDeclaration { ident, args, body } => {
+                // We already checked for duplicate functions in the first pass, so we can safely unwrap here
+                let func = self.functions.get(&ident.symbol).unwrap();
+                self.push_scope(body)?;
+            }
+            Stmt::InlineDeclaration { ident, value } => todo!(),
+            Stmt::VarDeclaration { ident } => todo!(),
+            Stmt::Use(vec1) => todo!(),
+            Stmt::Conditional {
+                condition,
+                body,
+                paths,
+                alternate,
+            } => todo!(),
+            Stmt::EndlessLoop { body } => todo!(),
+            Stmt::WhileLoop { condition, body } => todo!(),
+            Stmt::Pass => todo!(),
+        })
+    }
+
+    fn compile_expr(&mut self, expr: &Expr, push: bool, location: Range) -> Result<(), Error> {
+        Ok(match expr {
+            Expr::NumericLiteral(value) => {
+                if push {
+                    self.instr().i32_const(*value);
+                }
+            }
+            Expr::Identifier(name) => {
+                let var = self.func().get_local_index(name).ok_or(Error {
+                    typ: Box::new(ErrorType::UnknownVariable(name.clone())),
+                    location,
+                })?;
+                if push {
+                    self.instr().local_get(var);
                 }
             }
             Expr::BinaryExpr {
@@ -235,17 +224,30 @@ impl Target for W4Compiler {
                 right,
                 operator,
             } => {
-                self.eval_expr(&left.typ, location)?;
-                self.eval_expr(&right.typ, location)?;
-                let _ = operator;
+                self.compile_expr(&left.typ, push, location)?;
+                self.compile_expr(&right.typ, push, location)?;
+                if push {
+                    match operator {
+                        Operator::Plus => Instruction::I32Add,
+                        Operator::Minus => Instruction::I32Sub,
+                        Operator::Mult => Instruction::I32Mul,
+                        Operator::And => Instruction::I32And,
+                        Operator::Or => Instruction::I32Or,
+                        Operator::Xor => Instruction::I32Xor,
+                    }
+                    .encode(&mut self.func().instr_bytes);
+                }
             }
             Expr::Assignment { ident, value } => {
-                self.eval_expr(&value.typ, location)?;
-                if self.get_variable_offset(&ident.symbol).is_none() {
-                    return Err(Error {
-                        typ: Box::new(super::error::Type::NonexistentVar(ident.symbol.clone())),
-                        location,
-                    });
+                self.compile_expr(&value.typ, true, location)?;
+                let var = self
+                    .func()
+                    .get_local_index(&ident.symbol)
+                    .unwrap_or_else(|| self.func().insert_var(&ident.symbol));
+                if push {
+                    self.instr().local_tee(var);
+                } else {
+                    self.instr().local_set(var);
                 }
             }
             Expr::IAssignment {
@@ -253,101 +255,43 @@ impl Target for W4Compiler {
                 value,
                 operator,
             } => {
-                self.eval_expr(&value.typ, location)?;
-                if self.get_variable_offset(&ident.symbol).is_none() {
-                    return Err(Error {
-                        typ: Box::new(super::error::Type::NonexistentVar(ident.symbol.clone())),
-                        location,
-                    });
-                }
-                let _ = operator;
+                todo!()
             }
             Expr::Call { args, function } => {
                 for arg in args {
-                    self.eval_expr(&arg.typ, location)?;
+                    self.compile_expr(&arg.typ, true, location)?;
                 }
                 self.eval_call(function, args)?;
             }
             Expr::EqExpr { .. } => {
-                return Err(Error {
-                    typ: Box::new(super::error::Type::EqInNormalExpr),
-                    location,
-                });
+                todo!()
             }
             Expr::Debug => {}
             Expr::Member { .. } => {
-                return Err(Error {
-                    typ: Box::new(super::error::Type::NoConstants),
-                    location,
-                });
+                todo!()
             }
-        }
-        Ok(())
+        })
     }
 
-    fn get_output(&mut self) -> Self::Output {
-        let wasm = generate_minimal_wasm();
-        W4Output(wasm)
-    }
-
-    fn reset(&mut self) {
-        drop(mem::take(self));
+    fn get_output(&mut self) -> Vec<u8> {
+        let mut module = Module::new();
+        module.section(&self.types);
+        module.section(&self.imports);
+        module.section(&self.function_bodies);
+        module.finish()
     }
 }
 
-fn generate_minimal_wasm() -> Vec<u8> {
-    let mut wasm = Vec::new();
+type Res<T = ()> = Result<T, Error>;
 
-    wasm.extend_from_slice(b"\x00\x61\x73\x6d");
-    wasm.push(1);
-    wasm.push(0);
-    wasm.push(0);
-    wasm.push(0);
-
-    wasm.push(0x01);
-    wasm.push(0x07);
-    wasm.push(0x01);
-    wasm.push(0x66);
-    wasm.push(0x75);
-    wasm.push(0x6e);
-    wasm.push(0x63);
-    wasm.push(0x74);
-    wasm.push(0x69);
-    wasm.push(0x6f);
-    wasm.push(0x6e);
-    wasm.push(0x00);
-    wasm.push(0x00);
-
-    wasm.extend_from_slice(&[0x03, 0x02, 0x01, 0x00]);
-
-    wasm.push(0x07);
-    wasm.push(0x09);
-    wasm.push(0x01);
-    wasm.push(0x06);
-    wasm.push(0x75);
-    wasm.push(0x70);
-    wasm.push(0x64);
-    wasm.push(0x61);
-    wasm.push(0x74);
-    wasm.push(0x65);
-    wasm.push(0x00);
-    wasm.push(0x00);
-
-    wasm.push(0x0a);
-    wasm.push(0x09);
-    wasm.push(0x01);
-    wasm.push(0x07);
-    wasm.push(0x00);
-    wasm.push(0x41);
-    wasm.push(0x00);
-    wasm.push(0x0b);
-
-    wasm
-}
-
-impl crate::backend::target::Output for W4Output {
+impl Output for Vec<u8> {
     fn repr(&self) -> String {
-        format!("WASM module ({} bytes)", self.0.len())
+        let mut buf = String::new();
+        Config::new()
+            .fold_instructions(false)
+            .print(self, &mut PrintFmtWrite(&mut buf))
+            .unwrap();
+        buf
     }
 
     fn repr_bin(&self) -> Option<String> {
@@ -356,5 +300,28 @@ impl crate::backend::target::Output for W4Output {
 
     fn repr_loc(&self) -> Option<String> {
         None
+    }
+}
+
+impl Target for W4Compiler {
+    type Output = Vec<u8>;
+
+    fn reset(&mut self) {
+        drop(mem::take(self));
+    }
+
+    fn compile_program(&mut self, program: Fragment) -> Result<Self::Output, Vec<Error>> {
+        // First pass check for functions
+        self.scan_functions(&program).map_err(|err| vec![err])?;
+
+        let errors = program
+            .into_iter()
+            .filter_map(|line| self.eval_statement(line, false).err())
+            .collect::<Vec<_>>();
+        if !errors.is_empty() {
+            return Err(errors);
+        }
+
+        Ok(self.get_output())
     }
 }

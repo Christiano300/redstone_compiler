@@ -1,5 +1,8 @@
 use colored::{Colorize, CustomColor};
-use std::fmt::{Debug, Display};
+use std::{
+    borrow::Cow,
+    fmt::{Debug, Display},
+};
 
 use crate::frontend::Range;
 
@@ -20,7 +23,7 @@ macro_rules! err {
 
 #[allow(clippy::module_name_repetitions)]
 pub trait ErrorType {
-    fn get_message(&self) -> String;
+    fn get_message(&self) -> Cow<'_, str>;
 }
 
 pub struct Error {

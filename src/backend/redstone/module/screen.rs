@@ -1,12 +1,9 @@
-use crate::{
-    backend::target::Target,
-    frontend::{Expression, Range},
-};
+use crate::frontend::{Expression, Range};
 
-use super::super::error::Type as ErrorType;
 use super::super::Compiler;
+use super::super::error::Type as ErrorType;
 use super::Res;
-use super::{arg_parse, Arg, Call};
+use super::{Arg, Call, arg_parse};
 use crate::error::Error;
 
 /*
@@ -84,8 +81,8 @@ pub fn put_xy(
     offset: u8,
 ) -> Res {
     match (
-        compiler.try_get_constant(upper),
-        compiler.try_get_constant(lower),
+        compiler.try_get_constant(upper)?,
+        compiler.try_get_constant(lower)?,
     ) {
         (Some(upper), Some(lower)) => {
             compiler.put_a_number(upper << offset | lower, location);

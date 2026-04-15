@@ -4,15 +4,12 @@ ram.write(what, where) # also return
 ram.copy(from, to) # also return
 */
 
-use crate::{
-    backend::target::Target,
-    frontend::{Expr, Expression, Range},
-};
+use crate::frontend::{Expr, Expression, Range};
 
 use super::super::error::Type as ErrorType;
 use super::super::{Compiler, RamPage};
 use super::Res;
-use super::{arg_parse, modul, Arg, Call};
+use super::{Arg, Call, arg_parse, modul};
 
 modul!(read write copy);
 
@@ -84,7 +81,7 @@ fn read(compiler: &mut Compiler, call: &Call) -> Res {
 
 /// puts the address in the B register and calls RC if neccessary
 fn put_address(compiler: &mut Compiler, address: &Expression, location: Range) -> Res {
-    if let Some(value) = compiler.try_get_constant(address) {
+    if let Some(value) = compiler.try_get_constant(address)? {
         if compiler.last_scope().state.ram_page != RamPage::ThisOne((value / 16) as u8) {
             instr!(compiler, RC, location);
         }

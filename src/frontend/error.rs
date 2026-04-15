@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::error::ErrorType;
 
 pub enum Type {
@@ -19,8 +21,8 @@ pub enum Type {
 }
 
 impl ErrorType for Type {
-    fn get_message(&self) -> String {
-        match self {
+    fn get_message(&self) -> Cow<'_, str> {
+        Cow::from(match self {
             Self::EmptyBlock => "Cannot have empty block. Use 'pass'",
             Self::MissingEnd => "Missing end keyword",
             Self::InvalidModuleName => "Invalid module name",
@@ -30,7 +32,7 @@ impl ErrorType for Type {
             Self::InvalidParam => "Invalid parameter name",
             Self::MissingEquals => "Expected equals following identifier",
             Self::FunctionChaining => {
-                "You can't chain functions, what do you think this is, Python?"
+                "You can't chain functions, what do you think this is, JavaScript?"
             }
             Self::MissingOpenParen => "Expected '(' after function call",
             Self::MissingClosingParen => "Missing ')'",
@@ -38,7 +40,6 @@ impl ErrorType for Type {
             Self::Eof => "Unexpected EOF while parsing",
             Self::UnexpectedOther => "Unexpected token found",
             Self::ExpectedParen => "Unexpected token, expected ')'",
-        }
-        .to_string()
+        })
     }
 }

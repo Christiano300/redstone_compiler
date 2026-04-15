@@ -42,15 +42,12 @@ const SCREENPOS2_REG: u8 = 6;
 const PAINT: i16 = 1;
 const FLIP: i16 = 2;
 
-use crate::{
-    backend::target::Target,
-    frontend::{Expr, Expression},
-};
+use crate::frontend::{Expr, Expression};
 
-use super::super::error::Type as ErrorType;
 use super::super::Compiler;
+use super::super::error::Type as ErrorType;
 use super::Res;
-use super::{arg_parse, modul, screen::put_xy, Arg, Call};
+use super::{Arg, Call, arg_parse, modul, screen::put_xy};
 
 modul!(set set_at fill fill_xy fill_screen flip color_of);
 
@@ -106,8 +103,8 @@ fn put_xy_color(
                 put_xy(compiler, x, y, call.location, 6)?;
                 compiler.eval_expression(color)?;
                 instr!(compiler, OR, call.location);
-            } else if compiler.try_get_constant(x).is_some()
-                && compiler.try_get_constant(y).is_some()
+            } else if compiler.try_get_constant(x)?.is_some()
+                && compiler.try_get_constant(y)?.is_some()
             {
                 compiler.eval_expression(color)?;
                 compiler.switch(call.location)?;
@@ -190,7 +187,7 @@ fn load_position_color(
     color: &Expression,
     call: &Call,
 ) -> Res {
-    match (compiler.try_get_constant(position), is_const_color(color)) {
+    match (compiler.try_get_constant(position)?, is_const_color(color)) {
         (None, None) => {
             let temp = compiler.insert_temp_var(call.location)?;
             compiler.eval_expression(color)?;
@@ -218,7 +215,7 @@ fn load_position_color(
 fn color_of(compiler: &mut Compiler, call: &Call) -> Res {
     let color = arg_parse(compiler, [Arg::Number("color")], call)?[0];
 
-    match compiler.try_get_constant(color) {
+    match compiler.try_get_constant(color)? {
         Some(number) => compiler.put_a_number(number, call.location),
         None => compiler.eval_expression(color)?,
     }

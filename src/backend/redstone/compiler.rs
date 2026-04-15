@@ -10,7 +10,9 @@ use vec1::{Vec1, vec1};
 use crate::{
     backend::target::Target,
     error::Error,
-    frontend::{EqualityOperator, Expr, Expression, Fragment, Ident, Operator, Range},
+    frontend::{
+        EqualityOperator, Expr, Expression, Fragment, Ident, Operator, Range, Statement, Stmt,
+    },
 };
 
 use super::{ComputerState, Instr, RegisterContents, Scope, error::Type as ErrorType};
@@ -206,6 +208,27 @@ impl Compiler {
         id
     }
 
+    fn eval_statement(&mut self, statement: Statement) -> Result<(), Error> {
+        match statement.typ {
+            Stmt::Expr(expr) => self.eval_expr(&expr, statement.location),
+            Stmt::InlineDeclaration { ident, value } => self.visit_inline_decl(ident, *value),
+            Stmt::VarDeclaration { ident } => self.visit_var_decl(ident),
+            Stmt::Use(modules) => self.visit_use(modules, statement.location),
+            Stmt::Conditional {
+                condition,
+                body,
+                paths,
+                alternate,
+            } => self.visit_conditional(*condition, body, paths, alternate),
+            Stmt::EndlessLoop { body } => self.visit_endless(body, statement.location),
+            Stmt::WhileLoop { condition, body } => self.visit_while(*condition, body),
+            Stmt::Pass => Ok(self.visit_pass(statement.location)),
+            Stmt::FunctionDeclaration { ident, args, body } => {
+                self.visit_function_decl(ident, args, body)
+            }
+        }
+    }
+
     fn eval_conditional(
         &mut self,
         condition: Expression,
@@ -304,11 +327,15 @@ impl Compiler {
         Ok(())
     }
 
-    fn try_eval_const(&mut self, expr: &Expression) -> Result<i16, Range> {
+    fn try_eval_const(&mut self, expr: &Expression) -> Res<Option<i16>> {
         match &expr.typ {
             Expr::Identifier(name) => self
                 .get_inline_var(name, expr.location)
-                .map_err(|e| e.location),
+                .or(err!(
+                    ErrorType::NonexistentInlineVar(name.clone()),
+                    expr.location
+                ))
+                .map(Some),
             Expr::BinaryExpr {
                 left,
                 right,
@@ -316,17 +343,25 @@ impl Compiler {
             } => {
                 let left = self.try_eval_const(left)?;
                 let right = self.try_eval_const(right)?;
-                Ok(match operator {
+                let Some(left) = left else {
+                    return Ok(None);
+                };
+                let Some(right) = right else {
+                    return Ok(None);
+                };
+                Ok(Some(match operator {
                     Operator::Plus => left + right,
                     Operator::Minus => left - right,
                     Operator::Mult => left * right,
                     Operator::And => left & right,
                     Operator::Or => left | right,
                     Operator::Xor => left ^ right,
-                })
+                }))
             }
-            Expr::NumericLiteral(value) => Ok(*value),
-            _ => Err(expr.location),
+            Expr::NumericLiteral(value) => i16::try_from(*value)
+                .or(err!(ErrorType::NumberTooBig, expr.location))
+                .map(Some),
+            _ => err!(ErrorType::ForbiddenInline, expr.location),
         }
     }
 
@@ -423,6 +458,146 @@ impl Compiler {
         Ok(swapped)
     }
 
+    pub fn eval_expression(&mut self, expr: &Expression) -> Result<(), Error> {
+        self.eval_expr(&expr.typ, expr.location)
+    }
+
+    fn visit_inline_decl(&mut self, ident: Ident, value: Expression) -> Result<(), Error> {
+        let value = self.try_eval_const(&value)?.ok_or(Error {
+            typ: Box::new(ErrorType::ForbiddenInline),
+            location: value.location,
+        })?;
+        self.insert_inline_var(ident.symbol, value);
+        Ok(())
+    }
+
+    fn visit_var_decl(&mut self, ident: Ident) -> Result<(), Error> {
+        self.insert_var(&ident.symbol, ident.location)?;
+        Ok(())
+    }
+
+    fn visit_use(&mut self, modules: Vec1<Ident>, location: Range) -> Result<(), Error> {
+        for module in modules {
+            if !self.is_root_scope() {
+                return Err(Error {
+                    typ: Box::new(ErrorType::UseOutsideGlobalScope),
+                    location,
+                });
+            }
+            if !exist(&module.symbol) {
+                return Err(Error {
+                    typ: Box::new(ErrorType::NonexistentModule(module.symbol)),
+                    location: module.location,
+                });
+            }
+            init(&module.symbol, self, module.location)?;
+            self.modules.insert(module.symbol);
+        }
+        Ok(())
+    }
+
+    fn visit_conditional(
+        &mut self,
+        condition: Expression,
+        body: Fragment,
+        paths: Vec<(Expression, Fragment)>,
+        alternate: Option<Fragment>,
+    ) -> Result<(), Error> {
+        self.eval_conditional(condition, body, paths, alternate)
+            .flatten()
+    }
+
+    fn visit_endless(&mut self, body: Fragment, location: Range) -> Result<(), Error> {
+        let mark = Self::scope_len(&self.scopes.first().instructions);
+        let id = self.insert_jump_mark();
+        self.jump_marks.insert(id, mark);
+
+        self.push_scope(body, ComputerState::default())?;
+        self.pop_scope();
+
+        instr!(self, JMP, id, location);
+
+        Ok(())
+    }
+
+    fn visit_while(&mut self, condition: Expression, body: Fragment) -> Result<(), Error> {
+        let condition_loc = condition.location;
+        let (left, right, operator) = eval_condition(condition)?;
+
+        let start_id = self.insert_jump_mark();
+        let end_id = self.insert_jump_mark();
+
+        self.put_comparison((&left, &right, operator.opposite()), condition_loc, end_id)?;
+
+        let start = Self::scope_len(&self.scopes.first().instructions);
+
+        self.jump_marks.insert(start_id, start);
+
+        self.push_scope(body, self.last_scope().state)?;
+
+        self.put_comparison((&left, &right, operator), condition_loc, start_id)?;
+
+        self.pop_scope();
+        let end = Self::scope_len(&self.scopes.first().instructions);
+
+        self.jump_marks.insert(end_id, end);
+
+        Ok(())
+    }
+
+    fn visit_function_decl(
+        &mut self,
+        ident: Ident,
+        _args: Vec<Ident>,
+        _body: Fragment,
+    ) -> Result<(), Error> {
+        Err(Error {
+            typ: Box::new(super::error::Type::NoFunctions),
+            location: ident.location,
+        })
+    }
+
+    fn eval_expr(&mut self, expr: &Expr, location: Range) -> Result<(), Error> {
+        match &expr {
+            Expr::NumericLiteral(..) | Expr::Identifier(..) => {
+                self.put_into_a(expr, location)?;
+            }
+            Expr::BinaryExpr {
+                left,
+                right,
+                operator,
+            } => self.eval_binary_expr(left, right, *operator, location)?,
+            Expr::Assignment { ident, value } => {
+                self.eval_assignment(&ident.symbol, value)?;
+            }
+            Expr::IAssignment {
+                ident,
+                value,
+                operator,
+            } => {
+                self.eval_iassignment(ident, value, *operator)?;
+            }
+            Expr::Call { args, function } => self.eval_call(function, args)?,
+            Expr::EqExpr { .. } => {
+                return err!(EqInNormalExpr, location);
+            }
+            Expr::Debug => instr!(self, LAL, 17, location),
+            Expr::Member { .. } => return err!(NoConstants, location),
+        }
+        Ok(())
+    }
+
+    fn get_output(&mut self) -> <Self as Target>::Output {
+        let main_scope = vec![Instr::Scope(
+            mem::take(self.scopes.first_mut()).instructions,
+        )];
+        let mut instructions = vec![];
+        Self::flatten_scope(main_scope, &mut instructions);
+        Self::insert_disc_jumps(&mut instructions, &mut self.jump_marks);
+        Self::replace_jump_marks(&mut instructions, &self.jump_marks);
+        instructions
+    }
+
     fn eval_assignment(&mut self, symbol: &str, value: &Expression) -> Res {
         self.eval_expression(value)?;
 
@@ -465,12 +640,14 @@ impl Compiler {
     /// # Errors
     ///
     /// on any compiler error
-    pub fn try_get_constant(&mut self, value: &Expression) -> Option<i16> {
+    pub fn try_get_constant(&mut self, value: &Expression) -> Res<Option<i16>> {
         match &value.typ {
-            Expr::NumericLiteral(value) => Some(*value),
-            Expr::Identifier(symbol) => self.get_inline_var(symbol, value.location).ok(),
-            Expr::BinaryExpr { .. } => self.try_eval_const(value).ok(),
-            _ => None,
+            Expr::NumericLiteral(num) => {
+                i16::try_from(*num).map_or(err!(NumberTooBig, value.location), |v| Ok(Some(v)))
+            }
+            Expr::Identifier(symbol) => self.get_inline_var(symbol, value.location).map(Some),
+            Expr::BinaryExpr { .. } => self.try_eval_const(value),
+            _ => Ok(None),
         }
     }
 
@@ -496,7 +673,10 @@ impl Compiler {
         use Expr as E;
         match &expr {
             E::NumericLiteral(value) => {
-                self.put_a_number(*value, location);
+                self.put_a_number(
+                    i16::try_from(*value).or(err!(NumberTooBig, location))?,
+                    location,
+                );
             }
             E::Identifier(symbol) => {
                 if let Ok(value) = self.get_inline_var(symbol, location) {
@@ -542,7 +722,10 @@ impl Compiler {
         use Expr as E;
         match &expr.typ {
             E::NumericLiteral(value) => {
-                self.put_b_number(*value, expr.location);
+                self.put_b_number(
+                    i16::try_from(*value).or(err!(NumberTooBig, expr.location))?,
+                    expr.location,
+                );
             }
             E::Identifier(symbol) => {
                 if let Ok(value) = self.get_inline_var(symbol, expr.location) {
@@ -583,7 +766,7 @@ impl Compiler {
         use Expr as E;
         match &expr.typ {
             E::NumericLiteral(value) => {
-                self.last_scope().state.a == RegisterContents::Number(*value)
+                matches!(self.last_scope().state.a, RegisterContents::Number(v) if v as i32 == *value)
             }
             E::Identifier(symbol) => {
                 RegisterContents::Variable(match self.get_var_noerror(symbol) {
@@ -599,7 +782,7 @@ impl Compiler {
         use Expr as E;
         match &expr.typ {
             E::NumericLiteral(value) => {
-                self.last_scope().state.b == RegisterContents::Number(*value)
+                matches!(self.last_scope().state.b, RegisterContents::Number(v) if v as i32 == *value)
             }
             E::Identifier(symbol) => {
                 RegisterContents::Variable(match self.get_var_noerror(symbol) {
@@ -728,6 +911,10 @@ impl Compiler {
             }
         }
     }
+
+    fn visit_pass(&mut self, location: Range) {
+        instr!(self, LAL, 17, location);
+    }
 }
 
 fn eval_condition(
@@ -756,140 +943,16 @@ impl Default for Compiler {
 impl Target for Compiler {
     type Output = Vec<Instruction>;
 
-    fn visit_inline_decl(&mut self, ident: Ident, value: Expression) -> Result<(), Error> {
-        let value = self.try_eval_const(&value).map_err(|loc| Error {
-            typ: Box::new(ErrorType::ForbiddenInline),
-            location: loc,
-        })?;
-        self.insert_inline_var(ident.symbol, value);
-        Ok(())
-    }
-
-    fn visit_var_decl(&mut self, ident: Ident) -> Result<(), Error> {
-        self.insert_var(&ident.symbol, ident.location)?;
-        Ok(())
-    }
-
-    fn visit_use(&mut self, modules: Vec1<Ident>, location: Range) -> Result<(), Error> {
-        for module in modules {
-            if !self.is_root_scope() {
-                return Err(Error {
-                    typ: Box::new(ErrorType::UseOutsideGlobalScope),
-                    location,
-                });
-            }
-            if !exist(&module.symbol) {
-                return Err(Error {
-                    typ: Box::new(ErrorType::NonexistentModule(module.symbol)),
-                    location: module.location,
-                });
-            }
-            init(&module.symbol, self, module.location)?;
-            self.modules.insert(module.symbol);
+    fn compile_program(&mut self, program: Fragment) -> Result<Self::Output, Vec<Error>> {
+        let errors = program
+            .into_iter()
+            .filter_map(|line| self.eval_statement(line).err())
+            .collect::<Vec<_>>();
+        if !errors.is_empty() {
+            return Err(errors);
         }
-        Ok(())
-    }
 
-    fn visit_conditional(
-        &mut self,
-        condition: Expression,
-        body: Fragment,
-        paths: Vec<(Expression, Fragment)>,
-        alternate: Option<Fragment>,
-    ) -> Result<(), Error> {
-        self.eval_conditional(condition, body, paths, alternate)
-            .flatten()
-    }
-
-    fn visit_endless(&mut self, body: Fragment, location: Range) -> Result<(), Error> {
-        let mark = Self::scope_len(&self.scopes.first().instructions);
-        let id = self.insert_jump_mark();
-        self.jump_marks.insert(id, mark);
-
-        self.push_scope(body, ComputerState::default())?;
-        self.pop_scope();
-
-        instr!(self, JMP, id, location);
-
-        Ok(())
-    }
-
-    fn visit_while(&mut self, condition: Expression, body: Fragment) -> Result<(), Error> {
-        let condition_loc = condition.location;
-        let (left, right, operator) = eval_condition(condition)?;
-
-        let start_id = self.insert_jump_mark();
-        let end_id = self.insert_jump_mark();
-
-        self.put_comparison((&left, &right, operator.opposite()), condition_loc, end_id)?;
-
-        let start = Self::scope_len(&self.scopes.first().instructions);
-
-        self.jump_marks.insert(start_id, start);
-
-        self.push_scope(body, self.last_scope().state)?;
-
-        self.put_comparison((&left, &right, operator), condition_loc, start_id)?;
-
-        self.pop_scope();
-        let end = Self::scope_len(&self.scopes.first().instructions);
-
-        self.jump_marks.insert(end_id, end);
-
-        Ok(())
-    }
-
-    fn visit_function_decl(
-        &mut self,
-        ident: Ident,
-        _args: Vec<Ident>,
-        _body: Fragment,
-    ) -> Result<(), Error> {
-        Err(Error {
-            typ: Box::new(super::error::Type::NoFunctions),
-            location: ident.location,
-        })
-    }
-
-    fn eval_expr(&mut self, expr: &Expr, location: Range) -> Result<(), Error> {
-        match &expr {
-            Expr::NumericLiteral(..) | Expr::Identifier(..) => {
-                self.put_into_a(expr, location)?;
-            }
-            Expr::BinaryExpr {
-                left,
-                right,
-                operator,
-            } => self.eval_binary_expr(left, right, *operator, location)?,
-            Expr::Assignment { ident, value } => {
-                self.eval_assignment(&ident.symbol, value)?;
-            }
-            Expr::IAssignment {
-                ident,
-                value,
-                operator,
-            } => {
-                self.eval_iassignment(ident, value, *operator)?;
-            }
-            Expr::Call { args, function } => self.eval_call(function, args)?,
-            Expr::EqExpr { .. } => {
-                return err!(EqInNormalExpr, location);
-            }
-            Expr::Debug => instr!(self, LAL, 17, location),
-            Expr::Member { .. } => return err!(NoConstants, location),
-        }
-        Ok(())
-    }
-
-    fn get_output(&mut self) -> Self::Output {
-        let main_scope = vec![Instr::Scope(
-            mem::take(self.scopes.first_mut()).instructions,
-        )];
-        let mut instructions = vec![];
-        Self::flatten_scope(main_scope, &mut instructions);
-        Self::insert_disc_jumps(&mut instructions, &mut self.jump_marks);
-        Self::replace_jump_marks(&mut instructions, &self.jump_marks);
-        instructions
+        Ok(self.get_output())
     }
 
     fn reset(&mut self) {

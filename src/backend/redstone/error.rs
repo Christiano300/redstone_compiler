@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::error::ErrorType;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -13,6 +15,7 @@ pub enum Type {
     CompileTimeArg(String),
     SomethingElseWentWrong(String),
     ModuleInitTwice(String),
+    NumberTooBig,
     EqInNormalExpr,
     NormalInEqExpr,
     UseOutsideGlobalScope,
@@ -21,46 +24,39 @@ pub enum Type {
 }
 
 impl ErrorType for Type {
-    fn get_message(&self) -> String {
+    fn get_message(&self) -> Cow<'_, str> {
         match &self {
-            Self::NonexistentVar(name) => {
-                format!("Varialble {name} is not defined")
-            }
+            Self::NonexistentVar(name) => Cow::from(format!("Varialble {name} is not defined")),
             Self::NonexistentInlineVar(name) => {
-                format!("Inline variable {name} is not defined")
+                Cow::from(format!("Inline variable {name} is not defined"))
             }
-            Self::TooManyVars => "There are too many variales".to_string(),
+            Self::TooManyVars => Cow::from("There are too many variales"),
             Self::ForbiddenInline => {
-                "This expression cannot be used in an inline expression".to_string()
+                Cow::from("This expression cannot be used in an inline expression")
             }
-            Self::NonexistentModule(name) => {
-                format!("The module {name} doesn't exist")
-            }
-            Self::UnlodadedModule(name) => {
-                format!("The module {name} is not loaded")
-            }
-            Self::UnknownMethod(name) => {
-                format!("The method {name} doesn't exist")
-            }
-            Self::InvalidArgs(args) => {
-                format!("The arguments {args} are invalid")
-            }
-            Self::SomethingElseWentWrong(e) => {
-                format!("Something else has gone wrong: {e}. Please report this to the developer")
-            }
+            Self::NonexistentModule(name) => Cow::from(format!("The module {name} doesn't exist")),
+            Self::UnlodadedModule(name) => Cow::from(format!("The module {name} is not loaded")),
+            Self::UnknownMethod(name) => Cow::from(format!("The method {name} doesn't exist")),
+            Self::InvalidArgs(args) => Cow::from(format!("The arguments {args} are invalid")),
+            Self::SomethingElseWentWrong(e) => Cow::from(format!(
+                "Something else has gone wrong: {e}. Please report this to the developer"
+            )),
             Self::ModuleInitTwice(name) => {
-                format!("The module {name} was initialilzed twice")
+                Cow::from(format!("The module {name} was initialilzed twice"))
             }
             Self::EqInNormalExpr => {
-                "You can't use an Equality Expression in a Normal Expression".to_string()
+                Cow::from("You can't use an Equality Expression in a Normal Expression")
             }
-            Self::NormalInEqExpr => "You can't use a normal Expression here".to_string(),
-            Self::UseOutsideGlobalScope => "You can only use 'use' in the global scope".to_string(),
+            Self::NumberTooBig => {
+                Cow::from("Value is too large for MCN-16 target, only i16 is supported")
+            }
+            Self::NormalInEqExpr => Cow::from("You can't use a normal Expression here"),
+            Self::UseOutsideGlobalScope => Cow::from("You can only use 'use' in the global scope"),
             Self::CompileTimeArg(name) => {
-                format!("{name} has to be known at compile-time")
+                Cow::from(format!("{name} has to be known at compile-time"))
             }
-            Self::NoConstants => "Constants are only supported inside module calls".to_string(),
-            Self::NoFunctions => "Functions are not supported for the MCN-16 target".to_string(),
+            Self::NoConstants => Cow::from("Constants are only supported inside module calls"),
+            Self::NoFunctions => Cow::from("Functions are not supported for the MCN-16 target"),
         }
     }
 }

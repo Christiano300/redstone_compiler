@@ -9,8 +9,8 @@ use crate::{
     frontend::{Expression, Range},
 };
 
-use super::error::Type as ErrorType;
 use super::Compiler;
+use super::error::Type as ErrorType;
 
 pub fn call(name: &str, compiler: &mut Compiler, call: &Call) -> Res {
     match name {
@@ -64,7 +64,7 @@ fn arg_parse<'a, const COUNT: usize>(
         .into_iter()
         .zip(call.args.iter())
         .try_for_each(|(typ, arg)| match typ {
-            Arg::Constant(name) => match compiler.try_get_constant(arg) {
+            Arg::Constant(name) => match compiler.try_get_constant(arg)? {
                 Some(_) => Ok(()), // if we can get the value at compile-time, its ok
                 None => Err(Error {
                     typ: Box::new(ErrorType::CompileTimeArg(name.to_string())),

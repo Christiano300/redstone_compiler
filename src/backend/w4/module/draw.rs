@@ -1,5 +1,5 @@
-use super::super::error::Type as ErrorType;
 use super::super::W4Compiler;
+use super::super::error::Type as ErrorType;
 use super::{Call, Res};
 use crate::error::Error;
 
@@ -55,7 +55,7 @@ fn oval(_compiler: &mut W4Compiler, call: &Call) -> Res {
     Ok(())
 }
 
-fn text(compiler: &mut W4Compiler, call: &Call) -> Res {
+fn text(_compiler: &mut W4Compiler, call: &Call) -> Res {
     if call.args.len() != 3 {
         return Err(Error {
             typ: Box::new(ErrorType::InvalidArgs(
@@ -64,7 +64,6 @@ fn text(compiler: &mut W4Compiler, call: &Call) -> Res {
             location: call.location,
         });
     }
-    let _ = compiler.add_string("placeholder");
     Ok(())
 }
 
