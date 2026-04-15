@@ -7,8 +7,8 @@ use std::{
 use clap::Parser as CLIParser;
 use colored::{Colorize, CustomColor};
 use redstone_compiler::{
-    backend::{OptLevel, Output, Target},
-    frontend::{Parser, tokenize},
+    backend::{OptLevel, Output, Target as BackendTarget},
+    frontend::{Lexer, LexerTarget, Parser},
 };
 
 #[cfg(feature = "redstone")]
@@ -94,14 +94,19 @@ fn main() -> io::Result<()> {
 
     if program.is_empty() {
         let opt_level = parse_opt_level(&args.opt);
-        return match args.target.map(|t| t.to_lowercase()).as_deref() {
+        let target_str = args.target.as_deref().map(|t| t.to_lowercase());
+        let lexer_target = match target_str.as_deref() {
+            Some("w4") => LexerTarget::W4,
+            _ => LexerTarget::Redstone,
+        };
+        return match target_str.as_deref() {
             #[cfg(feature = "redstone")]
-            Some("mcn-16") | None => repl(Compiler::with_opt_level(opt_level)),
+            Some("mcn-16") | None => repl(Compiler::with_opt_level(opt_level), lexer_target),
             #[cfg(feature = "w4")]
             Some("w4") => {
                 let mut compiler = W4Compiler::default();
                 compiler.opt_level = opt_level;
-                repl(compiler)
+                repl(compiler, lexer_target)
             }
             Some(other) => {
                 eprintln!("Unknown target: {other}");
@@ -143,6 +148,7 @@ fn main() -> io::Result<()> {
                 &program,
                 args.dbg,
                 args.loc,
+                LexerTarget::Redstone,
             )
         }
         #[cfg(feature = "w4")]
@@ -157,6 +163,7 @@ fn main() -> io::Result<()> {
                 &program,
                 args.dbg,
                 args.loc,
+                LexerTarget::W4,
             )
         }
         Some(other) => {
@@ -166,7 +173,7 @@ fn main() -> io::Result<()> {
     }
 }
 
-fn run_compiler<T: Target>(
+fn run_compiler<T: BackendTarget>(
     mut target: T,
     code: &str,
     path: &str,
@@ -174,8 +181,10 @@ fn run_compiler<T: Target>(
     program: &str,
     dbg: bool,
     loc: bool,
+    lexer_target: LexerTarget,
 ) -> io::Result<()> {
-    let tokens = match tokenize(code) {
+    let lexer = Lexer::new(lexer_target);
+    let tokens = match lexer.tokenize(code) {
         Ok(tokens) => tokens,
         Err(err) => {
             err.pretty_print(code, path);
@@ -240,8 +249,9 @@ fn input(prompt: &str) -> Result<String, io::Error> {
     Ok(contents.trim().to_owned())
 }
 
-fn repl<T: Target>(mut target: T) -> io::Result<()> {
+fn repl<T: BackendTarget>(mut target: T, lexer_target: LexerTarget) -> io::Result<()> {
     let mut parser = Parser::new();
+    let lexer = Lexer::new(lexer_target);
     println!("Repl v{VERSION}");
     loop {
         let line = input("> ")?;
@@ -249,7 +259,7 @@ fn repl<T: Target>(mut target: T) -> io::Result<()> {
             return io::Result::Ok(());
         }
 
-        let tokens = tokenize(line.as_str());
+        let tokens = lexer.tokenize(line.as_str());
         let tokens = match tokens {
             Ok(tokens) => tokens,
             Err(err) => {

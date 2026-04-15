@@ -1,6 +1,6 @@
 use redstone_compiler::{
     backend::{Compiler, Output, Target},
-    frontend::{Parser, tokenize},
+    frontend::{Lexer, LexerTarget, Parser},
 };
 
 #[test]
@@ -22,7 +22,8 @@ fn mcn16_simple() {
     ";
 
     let mut parser = Parser::new();
-    let ast = parser.produce_ast(tokenize(code).unwrap()).unwrap();
+    let lexer = Lexer::new(LexerTarget::Redstone);
+    let ast = parser.produce_ast(lexer.tokenize(code).unwrap()).unwrap();
     let mut compiler = Compiler::new();
     let assembly = compiler.compile_program(ast).unwrap();
 
