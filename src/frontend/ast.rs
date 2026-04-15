@@ -19,7 +19,7 @@ pub struct Statement {
     pub location: Range,
 }
 
-/// Sequence of statements, either a program, function (theoretically) or conditional body.
+/// Sequence of statements, either a program, function or conditional body.
 pub type Fragment = Vec<Statement>;
 
 #[derive(Debug, Default)]

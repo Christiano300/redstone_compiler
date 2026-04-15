@@ -24,6 +24,8 @@ use super::{
 
 use static_assertions::const_assert;
 
+use crate::backend::w4::compiler::OptLevel;
+
 const VAR_SLOTS: usize = 32;
 
 type Res<T = (), E = Error> = Result<T, E>;
@@ -54,17 +56,24 @@ pub struct Compiler {
     jump_marks: HashMap<u8, u8>,
     pub variables: [bool; VAR_SLOTS],
     pub module_state: HashMap<&'static str, Box<dyn Any>>,
+    pub opt_level: OptLevel,
 }
 
 impl Compiler {
     #[must_use]
     pub fn new() -> Self {
+        Self::with_opt_level(OptLevel::None)
+    }
+
+    #[must_use]
+    pub fn with_opt_level(opt_level: OptLevel) -> Self {
         Self {
             scopes: vec1!(Scope::default()),
             modules: HashSet::new(),
             jump_marks: HashMap::new(),
             variables: [false; VAR_SLOTS],
             module_state: HashMap::new(),
+            opt_level,
         }
     }
 

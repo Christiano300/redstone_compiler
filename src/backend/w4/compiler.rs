@@ -4,22 +4,42 @@ use std::{
     mem,
 };
 
-use vec1::Vec1;
+use vec1::{Vec1, vec1};
 use wasm_encoder::{
-    Encode, FunctionSection, ImportSection, Instruction, InstructionSink, Module, TypeSection,
-    ValType,
+    CodeSection, Encode, Function, FunctionSection, ImportSection, Instruction, InstructionSink,
+    Module, TypeSection, ValType,
 };
 use wasmprinter::{Config, PrintFmtWrite};
 
 use crate::{
     backend::{Output, target::Target},
     error::Error,
-    frontend::{Expr, Expression, Fragment, Operator, Range, Statement, Stmt},
+    frontend::{
+        EqualityOperator, Expr, Expression, Fragment, Ident, Operator, Range, Statement, Stmt,
+    },
 };
 
 use super::error::Type as ErrorType;
 
 use super::module::Call;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum OptLevel {
+    #[default]
+    None,
+    Basic,
+    Full,
+}
+
+impl OptLevel {
+    fn opt(&self) -> bool {
+        matches!(self, Self::Basic | Self::Full)
+    }
+
+    fn full(&self) -> bool {
+        matches!(self, Self::Full)
+    }
+}
 
 #[derive(Debug, Default)]
 struct BlockScope {
@@ -29,7 +49,8 @@ struct BlockScope {
 #[derive(Debug)]
 struct W4Function {
     arg_count: u16,
-    index: u32,
+    func_index: u32,
+    type_index: u32,
 }
 
 #[derive(Debug, Default)]
@@ -41,8 +62,18 @@ struct FunctionScope {
 }
 
 impl FunctionScope {
-    fn new() -> Self {
-        Self::default()
+    fn new(args: Vec<Ident>) -> Self {
+        let mut scope = BlockScope::default();
+        let len = args.len() as u32;
+        for (i, arg) in args.into_iter().enumerate() {
+            scope.variables.insert(arg.symbol, i as u32);
+        }
+        Self {
+            scopes: vec1!(scope),
+            next_local: len,
+            max_locals: len,
+            ..Default::default()
+        }
     }
 
     fn sink(&mut self) -> InstructionSink<'_> {
@@ -82,14 +113,16 @@ pub struct W4Compiler {
     modules: HashSet<String>,
     types: TypeSection,
     functions: HashMap<String, W4Function>,
-    function_bodies: FunctionSection,
+    /// Maps function index to (type index, wasm-encoder function object)
+    compiled_functions: HashMap<u32, (u32, Function)>,
     pub module_state: HashMap<&'static str, Box<dyn Any>>,
     strings: Vec<String>,
     imports: ImportSection,
+    pub opt_level: OptLevel,
 }
 
 impl W4Compiler {
-    pub fn func(&mut self) -> &mut FunctionScope {
+    fn func(&mut self) -> &mut FunctionScope {
         self.function_scopes.last_mut()
     }
 
@@ -97,15 +130,43 @@ impl W4Compiler {
         self.func().sink()
     }
 
-    fn push_scope(&mut self, mut body: Fragment) -> Result<(), Error> {
-        self.function_scopes.push(FunctionScope::new());
-        let last = body.pop().unwrap(); // Body cannot be empty
-        for line in body {
-            self.eval_statement(line, false)?;
+    fn try_get_const(&mut self, expr: &Expr) -> Option<i32> {
+        match &expr {
+            Expr::NumericLiteral(value) => Some(*value),
+            Expr::BinaryExpr {
+                left,
+                right,
+                operator,
+            } => {
+                let left_val = self.try_get_const(&left.typ)?;
+                let right_val = self.try_get_const(&right.typ)?;
+                Some(match operator {
+                    Operator::Plus => left_val + right_val,
+                    Operator::Minus => left_val - right_val,
+                    Operator::Mult => left_val * right_val,
+                    Operator::And => left_val & right_val,
+                    Operator::Or => left_val | right_val,
+                    Operator::Xor => left_val ^ right_val,
+                })
+            }
+            Expr::EqExpr {
+                left,
+                right,
+                operator,
+            } => {
+                let left_val = self.try_get_const(&left.typ)?;
+                let right_val = self.try_get_const(&right.typ)?;
+                Some(match operator {
+                    EqualityOperator::EqualTo => left_val == right_val,
+                    EqualityOperator::NotEqual => left_val != right_val,
+                    EqualityOperator::Greater => left_val > right_val,
+                    EqualityOperator::Less => left_val < right_val,
+                    EqualityOperator::GreaterEq => left_val >= right_val,
+                    EqualityOperator::LessEq => left_val <= right_val,
+                } as i32)
+            }
+            _ => None,
         }
-        self.eval_statement(last, true)?;
-        self.function_scopes.pop();
-        Ok(())
     }
 
     fn eval_call(&mut self, function: &Expression, args: &Vec<Expression>) -> Res {
@@ -162,15 +223,18 @@ impl W4Compiler {
                         location: ident.location,
                     });
                 }
-                let index = self.types.len();
+                let type_index = self.types.len();
+                // TODO: Optimize type section by reusing types, maybe just predefined types
                 self.types
                     .ty()
                     .function(vec![ValType::I32; args.len()], [ValType::I32]);
+                let func_index = self.functions.len() as u32;
                 self.functions.insert(
                     ident.symbol.clone(),
                     W4Function {
                         arg_count: args.len() as u16,
-                        index,
+                        func_index,
+                        type_index,
                     },
                 );
             }
@@ -183,10 +247,24 @@ impl W4Compiler {
             Stmt::Expr(expr) => {
                 self.compile_expr(&expr, push, statement.location)?;
             }
-            Stmt::FunctionDeclaration { ident, args, body } => {
+            Stmt::FunctionDeclaration {
+                ident,
+                args,
+                mut body,
+            } => {
+                self.function_scopes.push(FunctionScope::new(args));
+                let last = body.pop().unwrap(); // Body cannot be empty
+                for line in body {
+                    self.eval_statement(line, false)?;
+                }
+                self.eval_statement(last, true)?;
                 // We already checked for duplicate functions in the first pass, so we can safely unwrap here
                 let func = self.functions.get(&ident.symbol).unwrap();
-                self.push_scope(body)?;
+                let scope = self.function_scopes.pop().unwrap(); // TODO: Prob remove vec and use mem::take
+                let mut wasm_func = Function::new([(scope.max_locals, ValType::I32)]);
+                wasm_func.raw(scope.instr_bytes).instructions().end();
+                self.compiled_functions
+                    .insert(func.func_index, (func.type_index, wasm_func));
             }
             Stmt::InlineDeclaration { ident, value } => todo!(),
             Stmt::VarDeclaration { ident } => todo!(),
@@ -224,6 +302,14 @@ impl W4Compiler {
                 right,
                 operator,
             } => {
+                if self.opt_level.opt()
+                    && let Some(value) = self.try_get_const(expr)
+                {
+                    if push {
+                        self.instr().i32_const(value);
+                    }
+                    return Ok(());
+                }
                 self.compile_expr(&left.typ, push, location)?;
                 self.compile_expr(&right.typ, push, location)?;
                 if push {
@@ -274,10 +360,19 @@ impl W4Compiler {
     }
 
     fn get_output(&mut self) -> Vec<u8> {
+        let mut functions = FunctionSection::new();
+        for i in 0..self.compiled_functions.len() {
+            functions.function(self.compiled_functions.get(&(i as u32)).unwrap().0);
+        }
         let mut module = Module::new();
         module.section(&self.types);
         module.section(&self.imports);
-        module.section(&self.function_bodies);
+        module.section(&functions);
+        let mut code = CodeSection::new();
+        for i in 0..self.compiled_functions.len() {
+            code.function(&self.compiled_functions.get(&(i as u32)).unwrap().1);
+        }
+        module.section(&code);
         module.finish()
     }
 }
@@ -290,6 +385,7 @@ impl Output for Vec<u8> {
         Config::new()
             .fold_instructions(false)
             .print(self, &mut PrintFmtWrite(&mut buf))
+            .inspect_err(|e| eprintln!("{e:?}"))
             .unwrap();
         buf
     }

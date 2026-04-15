@@ -7,7 +7,7 @@ use std::{
 use clap::Parser as CLIParser;
 use colored::{Colorize, CustomColor};
 use redstone_compiler::{
-    backend::{Output, Target},
+    backend::{OptLevel, Output, Target},
     frontend::{Parser, tokenize},
 };
 
@@ -49,6 +49,14 @@ fn redstone_color_print(str: &str) {
     }
 }
 
+fn parse_opt_level(opt: &str) -> OptLevel {
+    match opt.to_lowercase().as_str() {
+        "basic" => OptLevel::Basic,
+        "full" => OptLevel::Full,
+        _ => OptLevel::None,
+    }
+}
+
 #[derive(CLIParser, Debug)]
 #[command(name = "RedC")]
 #[command(version = VERSION)]
@@ -68,6 +76,10 @@ struct Args {
     /// Target architecture
     #[arg(short, long, value_name = "TARGET")]
     target: Option<String>,
+
+    /// Optimization level (none, basic, full)
+    #[arg(short, long, value_name = "LEVEL", default_value = "none")]
+    opt: String,
 }
 
 fn main() -> io::Result<()> {
@@ -81,11 +93,16 @@ fn main() -> io::Result<()> {
     };
 
     if program.is_empty() {
+        let opt_level = parse_opt_level(&args.opt);
         return match args.target.map(|t| t.to_lowercase()).as_deref() {
             #[cfg(feature = "redstone")]
-            Some("mcn-16") | None => repl(Compiler::new()),
+            Some("mcn-16") | None => repl(Compiler::with_opt_level(opt_level)),
             #[cfg(feature = "w4")]
-            Some("w4") => repl(W4Compiler::default()),
+            Some("w4") => {
+                let mut compiler = W4Compiler::default();
+                compiler.opt_level = opt_level;
+                repl(compiler)
+            }
             Some(other) => {
                 eprintln!("Unknown target: {other}");
                 return Ok(());
@@ -113,27 +130,35 @@ fn main() -> io::Result<()> {
     let mut code = String::new();
     file.read_to_string(&mut code)?;
 
+    let opt_level = parse_opt_level(&args.opt);
+
     match args.target.map(|t| t.to_lowercase()).as_deref() {
         #[cfg(feature = "redstone")]
-        Some("mcn-16") | None => run_compiler(
-            Compiler::new(),
-            &code,
-            &path,
-            &dir,
-            &program,
-            args.dbg,
-            args.loc,
-        ),
+        Some("mcn-16") | None => {
+            run_compiler(
+                Compiler::with_opt_level(opt_level),
+                &code,
+                &path,
+                &dir,
+                &program,
+                args.dbg,
+                args.loc,
+            )
+        }
         #[cfg(feature = "w4")]
-        Some("w4") => run_compiler(
-            W4Compiler::default(),
-            &code,
-            &path,
-            &dir,
-            &program,
-            args.dbg,
-            args.loc,
-        ),
+        Some("w4") => {
+            let mut compiler = W4Compiler::default();
+            compiler.opt_level = opt_level;
+            run_compiler(
+                compiler,
+                &code,
+                &path,
+                &dir,
+                &program,
+                args.dbg,
+                args.loc,
+            )
+        }
         Some(other) => {
             eprintln!("Unknown target: {other}");
             Ok(())

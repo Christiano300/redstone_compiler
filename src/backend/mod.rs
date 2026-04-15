@@ -10,3 +10,4 @@ pub mod w4;
 pub use redstone::{Compiler, ErrorType, Instruction, InstructionVariant};
 
 pub use target::{Output, Target};
+pub use w4::compiler::OptLevel;
