@@ -1,14 +1,14 @@
 use std::{
     any::Any,
     collections::{HashMap, HashSet},
-    fmt::Write,
+    fmt::Write as _,
     mem,
 };
 
 use vec1::{Vec1, vec1};
 use wasm_encoder::{
     CodeSection, Encode, ExportSection, Function, FunctionSection, ImportSection, Instruction,
-    InstructionSink, MemArg, MemoryType, Module, TypeSection, ValType,
+    InstructionSink, MemoryType, Module, TypeSection, ValType,
 };
 use wasmprinter::{Config, PrintFmtWrite};
 
@@ -195,13 +195,13 @@ impl W4Compiler {
             }
             E::Identifier(symbol) => {
                 let Some(func) = self.functions.get(symbol).cloned() else {
-                    return err!(
+                    return err!(Err
                         ErrorType::NonexistentFunc(symbol.clone()),
                         function.location
                     );
                 };
                 if func.arg_count as usize != args.len() {
-                    return err!(
+                    return err!(Err
                         ErrorType::WrongArgs {
                             supplied: args.len(),
                             takes: func.arg_count,
@@ -216,10 +216,7 @@ impl W4Compiler {
                 Ok(())
             }
             _ => {
-                return Err(Error {
-                    typ: Box::new(ErrorType::UnknownMethod(format!("{:?}", function))),
-                    location: function.location,
-                });
+                return err!(Err ErrorType::UnknownMethod(format!("{function:?}")), function.location);
             }
         }
     }
@@ -228,7 +225,7 @@ impl W4Compiler {
         for line in program {
             if let Stmt::FunctionDeclaration { ident, args, .. } = &line.typ {
                 if self.functions.contains_key(&ident.symbol) {
-                    return err!(
+                    return err!(Err
                         ErrorType::DuplicateFunction(ident.symbol.clone()),
                         ident.location
                     );
@@ -282,7 +279,7 @@ impl W4Compiler {
                 if self.func().get_local_index(&ident.symbol).is_some()
                     || self.func().get_inline_const(&ident.symbol).is_some()
                 {
-                    return err!(
+                    return err!(Err
                         ErrorType::DuplicateVar(ident.symbol.clone()),
                         ident.location
                     );
@@ -301,7 +298,7 @@ impl W4Compiler {
                 if self.func().get_local_index(&ident.symbol).is_some()
                     || self.func().get_inline_const(&ident.symbol).is_some()
                 {
-                    return err!(
+                    return err!(Err
                         ErrorType::DuplicateVar(ident.symbol.clone()),
                         ident.location
                     );
@@ -337,10 +334,10 @@ impl W4Compiler {
                     self.instr().i32_const(val);
                     return Ok(());
                 }
-                let var = self.func().get_local_index(name).ok_or(Error {
-                    typ: Box::new(ErrorType::UnknownVariable(name.clone())),
-                    location,
-                })?;
+                let var = self
+                    .func()
+                    .get_local_index(name)
+                    .ok_or(err!(ErrorType::UnknownVariable(name.clone()), location))?;
                 if push {
                     self.instr().local_get(var);
                 }
@@ -374,7 +371,7 @@ impl W4Compiler {
             }
             Expr::Assignment { ident, value } => {
                 if let Some(_) = self.func().get_inline_const(&ident.symbol) {
-                    return err!(TrySetInline, ident.location);
+                    return err!(Err TrySetInline, ident.location);
                 }
                 self.compile_expr(&value.typ, true, location)?;
                 let var = self

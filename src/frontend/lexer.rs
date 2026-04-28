@@ -246,7 +246,7 @@ impl Lexer {
                     } else if char.is_alphabetic() || char == '_' {
                         read_identifier(char, &mut src, &mut current_location, &mut tokens)?;
                     } else if !is_skippable(char) {
-                        return err!(
+                        return err!( Err
                             ErrorType::InvalidChar(char.to_string()),
                             Range(current_location, current_location)
                         );
@@ -281,7 +281,7 @@ impl Lexer {
                     let start = *current_location;
                     let num = -self.read_num(
                         next(src, current_location).ok_or(<Result<i16, Error>>::unwrap_err(
-                            err!(ErrorType::Eof, Range(start, *current_location)),
+                            err!(Err ErrorType::Eof, Range(start, *current_location)),
                         ))?,
                         src,
                         false,
@@ -311,13 +311,13 @@ impl Lexer {
             match c {
                 Some('b') => {
                     if !allow_n_num {
-                        return err!(NonNegNNum, Range::single_char(*current_location));
+                        return err!(Err NonNegNNum, Range::single_char(*current_location));
                     }
                     return self.read_n_num(src, current_location, 2);
                 }
                 Some('x') => {
                     if !allow_n_num {
-                        return err!(NonNegNNum, Range::single_char(*current_location));
+                        return err!(Err NonNegNNum, Range::single_char(*current_location));
                     }
                     return self.read_n_num(src, current_location, 16);
                 }
@@ -344,9 +344,9 @@ impl Lexer {
             LexerTarget::W4 => num.parse::<i32>(),
         }
         .or(err!(
-            ErrorType::InvalidNumber(num),
-            Range(start, *current_location)
-        ))
+        Err            ErrorType::InvalidNumber(num),
+                    Range(start, *current_location)
+                ))
     }
 
     fn read_n_num(
@@ -375,7 +375,7 @@ impl Lexer {
             LexerTarget::Redstone => u16::from_str_radix(&num, radix).map(|num| num as i32),
             LexerTarget::W4 => u32::from_str_radix(&num, radix).map(|num| num as i32),
         }
-        .or(err!(
+        .or(err!(Err
             ErrorType::InvalidNumber(num),
             Range(start, *current_location)
         ))
@@ -421,7 +421,7 @@ fn read_string(
     let start = *current_location;
     // Consume the opening quote
     if src.peek() != Some(&'"') {
-        return err!(
+        return err!(Err
             ErrorType::InvalidString(Cow::from("Expected opening quote")),
             Range::single_char(*current_location)
         );
@@ -433,7 +433,7 @@ fn read_string(
         'b' => read_base64_string(src, current_location)?,
         'z' => read_z85_string(src, current_location)?,
         _ => {
-            return err!(
+            return err!(Err
                 ErrorType::InvalidStringSigil(char),
                 Range::single_char(start)
             );
@@ -503,14 +503,14 @@ fn read_hex_string(
         match c {
             '"' => break,
             c if c.is_ascii_hexdigit() => buf.push(c),
-            _ => err!(
+            _ => err!(Err
                 ErrorType::InvalidStringChar(c, "hex"),
                 Range::single_char(*current_location)
             )?,
         }
     }
     if buf.len() % 2 != 0 {
-        return err!(
+        return err!(Err
             ErrorType::InvalidString(Cow::from("Hex string must have an even number or nibbles")),
             Range(start, *current_location)
         );
@@ -549,7 +549,7 @@ fn read_ascii_string(
                             break;
                         };
                         if !a.is_ascii_hexdigit() {
-                            return err!(
+                            return err!(Err
                                 ErrorType::InvalidStringChar(a, "ascii"),
                                 Range::single_char(*current_location)
                             );
@@ -558,7 +558,7 @@ fn read_ascii_string(
                             break;
                         };
                         if !b.is_ascii_hexdigit() {
-                            return err!(
+                            return err!(Err
                                 ErrorType::InvalidStringChar(a, "ascii"),
                                 Range::single_char(*current_location)
                             );
@@ -568,7 +568,7 @@ fn read_ascii_string(
                         s.push(b);
                         u8::from_str_radix(&s, 16).unwrap()
                     }
-                    _ => err!(
+                    _ => err!(Err
                         ErrorType::InvalidString(Cow::from("Only Hex is allowed in hex excapes")),
                         Range::single_char(*current_location)
                     )?,
@@ -576,7 +576,7 @@ fn read_ascii_string(
                 buf.push(byte);
             }
             c if c.is_ascii() => buf.push(c as u8),
-            _ => err!(
+            _ => err!(Err
                 ErrorType::InvalidStringChar(c, "ascii"),
                 Range::single_char(*current_location)
             )?,
@@ -690,10 +690,12 @@ mod test {
     #[test]
     fn ascii_data_string_with_escape() {
         let code = "a\"hello\\nworld\"";
-        let expected: Vec<_> = [TokenType::DataString(vec![b'h', b'e', b'l', b'l', b'o', b'\n', b'w', b'o', b'r', b'l', b'd'])]
-            .into_iter()
-            .chain(once(TokenType::Eof))
-            .collect();
+        let expected: Vec<_> = [TokenType::DataString(vec![
+            b'h', b'e', b'l', b'l', b'o', b'\n', b'w', b'o', b'r', b'l', b'd',
+        ])]
+        .into_iter()
+        .chain(once(TokenType::Eof))
+        .collect();
         let ast = token_types(code, LexerTarget::default()).expect("Code to compile");
         assert_eq!(expected, ast);
     }

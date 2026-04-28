@@ -137,7 +137,7 @@ impl Parser {
                     body.push(self.parse_statement()?);
                 }
                 if body.is_empty() {
-                    return err!(EmptyBlock, start + self.at().location);
+                    return err!(Err EmptyBlock, start + self.at().location);
                 }
                 body
             })
@@ -170,7 +170,7 @@ impl Parser {
             body.push(self.parse_statement()?);
         }
         if body.is_empty() {
-            return err!(EmptyBlock, start + self.at().location);
+            return err!(Err EmptyBlock, start + self.at().location);
         }
         Ok((condition, body))
     }
@@ -186,7 +186,7 @@ impl Parser {
             .eat_if_or(match_fn!(TokenType::End), ErrorType::MissingEnd, start)?
             .location;
         if body.is_empty() {
-            return err!(EmptyBlock, start + self.at().location);
+            return err!(Err EmptyBlock, start + self.at().location);
         }
         Ok(Statement {
             typ: Stmt::EndlessLoop { body },
@@ -204,7 +204,7 @@ impl Parser {
         }
         let end = self.eat_if_or(match_fn!(T::End), ErrorType::MissingEnd, start)?;
         if body.is_empty() {
-            return err!(EmptyBlock, start + self.at().location);
+            return err!(Err EmptyBlock, start + self.at().location);
         }
         Ok(Statement {
             typ: Stmt::WhileLoop {
@@ -224,7 +224,7 @@ impl Parser {
                 symbol,
                 location: token.location,
             },
-            _ => return err!(InvalidModuleName, token.location),
+            _ => return err!(Err InvalidModuleName, token.location),
         });
         while matches!(self.at().typ, T::Comma) {
             self.eat();
@@ -234,7 +234,7 @@ impl Parser {
                     symbol,
                     location: token.location,
                 }),
-                _ => return err!(InvalidModuleName, token.location),
+                _ => return err!(Err InvalidModuleName, token.location),
             }
         }
         Ok(Statement {
@@ -257,7 +257,7 @@ impl Parser {
                 },
                 location: start + token.location,
             }),
-            _ => err!(InvalidDeclartion, token.location),
+            _ => err!(Err InvalidDeclartion, token.location),
         }
     }
 
@@ -265,7 +265,7 @@ impl Parser {
         let start = self.eat().location;
         let token = self.eat();
         let TokenType::Identifier(ident) = token.typ else {
-            return err!(InvalidAssignment, token.location);
+            return err!(Err InvalidAssignment, token.location);
         };
 
         self.eat_if(match_fn!(TokenType::Equals), ErrorType::MissingEquals)?;
@@ -288,7 +288,7 @@ impl Parser {
         let start = self.eat().location;
         let token = self.eat();
         let TokenType::Identifier(ident) = token.typ else {
-            return err!(InvalidAssignment, token.location);
+            return err!(Err InvalidAssignment, token.location);
         };
 
         self.eat_if(match_fn!(TokenType::Equals), ErrorType::MissingEquals)?;
@@ -321,7 +321,7 @@ impl Parser {
         let start = self.eat().location;
         let token = self.eat();
         let TokenType::Identifier(symbol) = token.typ else {
-            return err!(InvalidFunctionName, token.location);
+            return err!(Err InvalidFunctionName, token.location);
         };
         let mut args = vec![];
         if matches!(
@@ -337,13 +337,13 @@ impl Parser {
                         location: token.location,
                     });
                 } else {
-                    return err!(InvalidParam, token.location);
+                    return err!(Err InvalidParam, token.location);
                 }
                 let next = self.eat();
                 match next.typ {
                     TokenType::Comma => continue,
                     TokenType::CloseParen => break,
-                    _ => return err!(ExpectedParen, next.location),
+                    _ => return err!(Err ExpectedParen, next.location),
                 }
             }
         }
@@ -354,7 +354,7 @@ impl Parser {
         }
         let end = self.eat_if_or(match_fn!(TokenType::End), ErrorType::MissingEnd, start)?;
         if body.is_empty() {
-            return err!(EmptyBlock, start + self.at().location);
+            return err!(Err EmptyBlock, start + self.at().location);
         }
 
         Ok(Statement {
@@ -379,7 +379,7 @@ impl Parser {
 
         if matches!(self.at().typ, TokenType::Equals) {
             let Expr::Identifier(name) = left.typ else {
-                return err!(InvalidAssignment, self.at().location);
+                return err!(Err InvalidAssignment, self.at().location);
             };
             self.eat();
             let value = self.parse_assignment()?;
@@ -404,7 +404,7 @@ impl Parser {
 
         if let TokenType::IOperator(operator) = self.at().typ {
             let Expr::Identifier(ref name) = left.typ else {
-                return err!(InvalidAssignment, left.location);
+                return err!(Err InvalidAssignment, left.location);
             };
             self.eat();
             let value = self.parse_i_assignment()?;
@@ -558,7 +558,7 @@ impl Parser {
         let (args, end) = self.parse_args()?;
 
         if matches!(self.at().typ, TokenType::OpenFuncParen) {
-            return err!(FunctionChaining, self.at().location);
+            return err!(Err FunctionChaining, self.at().location);
         }
 
         let location = caller.location + end;
@@ -613,7 +613,7 @@ impl Parser {
             let property = self.parse_primary()?;
 
             let Expr::Identifier(name) = property.typ else {
-                return err!(InvalidDot, dot);
+                return err!(Err InvalidDot, dot);
             };
 
             let location = object.location + property.location;
@@ -653,9 +653,9 @@ impl Parser {
                 self.eat_if(match_fn!(TokenType::CloseParen), ErrorType::ExpectedParen)?;
                 value
             }
-            TokenType::DataString(..) => return err!(UnexpectedData, token.location),
-            TokenType::Eof => return err!(Eof, token.location),
-            _ => return err!(UnexpectedOther, token.location),
+            TokenType::DataString(..) => return err!(Err UnexpectedData, token.location),
+            TokenType::Eof => return err!(Err Eof, token.location),
+            _ => return err!(Err UnexpectedOther, token.location),
         })
     }
 }

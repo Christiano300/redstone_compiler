@@ -55,7 +55,7 @@ fn arg_parse<'a, const COUNT: usize>(
     call: &'a Call,
 ) -> Res<[&'a Expression; COUNT]> {
     if types.len() != call.args.len() {
-        return err!(
+        return err!(Err
             ErrorType::InvalidArgs("Wrong number of Arguments".to_string()),
             call.location
         );
@@ -88,7 +88,7 @@ macro_rules! modul {
                     #[allow(clippy::used_underscore_items)]
                     $method(compiler, call)
                 },)*
-                _ => err!(ErrorType::UnknownMethod(call.method_name.clone()), call.location)
+                _ => err!(Err ErrorType::UnknownMethod(call.method_name.clone()), call.location)
             }
         }
     }

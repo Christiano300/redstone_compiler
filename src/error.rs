@@ -7,17 +7,29 @@ use std::{
 use crate::frontend::Range;
 
 macro_rules! err {
-    ($type:ident, $loc:expr) => {
+    (Err $type:ident, $loc:expr) => {
         Err($crate::error::Error {
             typ: Box::new(ErrorType::$type),
             location: $loc,
         })
     };
-    ($type:expr, $loc:expr) => {
+    (Err $type:expr, $loc:expr) => {
         Err($crate::error::Error {
             typ: Box::new($type),
             location: $loc,
         })
+    };
+    ($type:ident, $loc:expr) => {
+        $crate::error::Error {
+            typ: Box::new(ErrorType::$type),
+            location: $loc,
+        }
+    };
+    ($type:expr, $loc:expr) => {
+        $crate::error::Error {
+            typ: Box::new($type),
+            location: $loc,
+        }
     };
 }
 

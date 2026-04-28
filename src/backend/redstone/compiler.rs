@@ -106,7 +106,7 @@ impl Compiler {
                 return Ok(*v);
             }
         }
-        err!(ErrorType::NonexistentInlineVar(symbol.clone()), location)
+        err!(Err ErrorType::NonexistentInlineVar(symbol.clone()), location)
     }
 
     fn get_next_available_slot(&mut self) -> Option<u8> {
@@ -122,10 +122,9 @@ impl Compiler {
                 return Ok(*v);
             }
         }
-        let slot = self.get_next_available_slot().ok_or(Error {
-            typ: Box::new(ErrorType::TooManyVars),
-            location,
-        })?;
+        let slot = self
+            .get_next_available_slot()
+            .ok_or(err!(TooManyVars, location))?;
         self.last_scope_mut()
             .variables
             .insert(symbol.to_owned(), slot);
@@ -139,12 +138,7 @@ impl Compiler {
     /// on any compiler error
     pub fn get_var(&self, symbol: &String, location: Range) -> Res<u8> {
         self.get_var_noerror(symbol).map_or_else(
-            || {
-                Err(Error {
-                    typ: Box::new(ErrorType::NonexistentVar(symbol.clone())),
-                    location,
-                })
-            },
+            || err!(Err ErrorType::NonexistentVar(symbol.clone()), location),
             Ok,
         )
     }
@@ -166,10 +160,8 @@ impl Compiler {
     ///
     /// When there are too many variables
     pub fn insert_temp_var(&mut self, location: Range) -> Res<u8> {
-        self.get_next_available_slot().ok_or(Error {
-            typ: Box::new(ErrorType::TooManyVars),
-            location,
-        })
+        self.get_next_available_slot()
+            .ok_or(err!(TooManyVars, location))
     }
 
     pub const fn cleanup_temp_var(&mut self, index: u8) {
@@ -232,7 +224,9 @@ impl Compiler {
             Stmt::FunctionDeclaration { ident, args, body } => {
                 self.visit_function_decl(ident, args, body)
             }
-            Stmt::DataDeclaration { ident, value } => return err!(DataString, statement.location),
+            Stmt::DataDeclaration { ident, value } => {
+                return err!(Err DataString, statement.location);
+            }
         }
     }
 
@@ -338,7 +332,7 @@ impl Compiler {
         match &expr.typ {
             Expr::Identifier(name) => self
                 .get_inline_var(name, expr.location)
-                .or(err!(
+                .or(err!(Err
                     ErrorType::NonexistentInlineVar(name.clone()),
                     expr.location
                 ))
@@ -366,7 +360,7 @@ impl Compiler {
                 }))
             }
             Expr::NumericLiteral(value) => Ok(Some(*value as i16)),
-            _ => err!(ErrorType::ForbiddenInline, expr.location),
+            _ => err!(Err ErrorType::ForbiddenInline, expr.location),
         }
     }
 
@@ -468,10 +462,9 @@ impl Compiler {
     }
 
     fn visit_inline_decl(&mut self, ident: Ident, value: Expression) -> Result<(), Error> {
-        let value = self.try_eval_const(&value)?.ok_or(Error {
-            typ: Box::new(ErrorType::ForbiddenInline),
-            location: value.location,
-        })?;
+        let value = self
+            .try_eval_const(&value)?
+            .ok_or(err!(ForbiddenInline, value.location))?;
         self.insert_inline_var(ident.symbol, value);
         Ok(())
     }
@@ -484,16 +477,10 @@ impl Compiler {
     fn visit_use(&mut self, modules: Vec1<Ident>, location: Range) -> Result<(), Error> {
         for module in modules {
             if !self.is_root_scope() {
-                return Err(Error {
-                    typ: Box::new(ErrorType::UseOutsideGlobalScope),
-                    location,
-                });
+                return err!(Err UseOutsideGlobalScope, location);
             }
             if !exist(&module.symbol) {
-                return Err(Error {
-                    typ: Box::new(ErrorType::NonexistentModule(module.symbol)),
-                    location: module.location,
-                });
+                return err!(Err ErrorType::NonexistentModule(module.symbol), module.location);
             }
             init(&module.symbol, self, module.location)?;
             self.modules.insert(module.symbol);
@@ -556,10 +543,7 @@ impl Compiler {
         _args: Vec<Ident>,
         _body: Fragment,
     ) -> Result<(), Error> {
-        Err(Error {
-            typ: Box::new(super::error::Type::NoFunctions),
-            location: ident.location,
-        })
+        err!(Err NoFunctions, ident.location)
     }
 
     fn eval_expr(&mut self, expr: &Expr, location: Range) -> Result<(), Error> {
@@ -584,10 +568,10 @@ impl Compiler {
             }
             Expr::Call { args, function } => self.eval_call(function, args)?,
             Expr::EqExpr { .. } => {
-                return err!(EqInNormalExpr, location);
+                return err!(Err EqInNormalExpr, location);
             }
             Expr::Debug => instr!(self, LAL, 17, location),
-            Expr::Member { .. } => return err!(NoConstants, location),
+            Expr::Member { .. } => return err!(Err NoConstants, location),
         }
         Ok(())
     }
@@ -695,19 +679,11 @@ impl Compiler {
                 if Self::can_put_into_a(expr) {
                     self.eval_expr(expr, location)?;
                 } else {
-                    return Err(Error {
-                        typ: Box::new(ErrorType::SomethingElseWentWrong("put_a".to_string())),
-                        location,
-                    });
+                    return err!(Err ErrorType::SomethingElseWentWrong("put_a".to_string()), location);
                 }
             }
             _ => {
-                return Err(Error {
-                    typ: Box::new(ErrorType::SomethingElseWentWrong(
-                        "put_a called on wrong expression".to_string(),
-                    )),
-                    location,
-                });
+                return err!(Err ErrorType::SomethingElseWentWrong("put_a called on wrong expression".to_string()), location);
             }
         }
         Ok(())
@@ -738,12 +714,7 @@ impl Compiler {
                 }
             }
             _ => {
-                return Err(Error {
-                    typ: Box::new(ErrorType::SomethingElseWentWrong(
-                        "put_b called on wrong expression".to_string(),
-                    )),
-                    location: expr.location,
-                });
+                return err!(Err ErrorType::SomethingElseWentWrong("put_b called on wrong expression".to_string()), expr.location);
             }
         }
         Ok(())
@@ -824,24 +795,15 @@ impl Compiler {
                     method = property;
                 }
                 _ => {
-                    return Err(Error {
-                        typ: Box::new(ErrorType::NonexistentModule(format!("{object:?}"))),
-                        location: function.location,
-                    });
+                    return err!(Err ErrorType::NonexistentModule(format!("{object:?}")), function.location);
                 }
             },
             _ => {
-                return Err(Error {
-                    typ: Box::new(ErrorType::UnknownMethod(format!("{function:?}"))),
-                    location: function.location,
-                });
+                return err!(Err ErrorType::UnknownMethod(format!("{function:?}")), function.location);
             }
         }
         if !self.modules.contains(module) {
-            return Err(Error {
-                typ: Box::new(ErrorType::UnlodadedModule(module.clone())),
-                location: function.location,
-            });
+            return err!(Err ErrorType::UnlodadedModule(module.clone()), function.location);
         }
 
         call(

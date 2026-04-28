@@ -1,28 +1,12 @@
-mod draw;
-mod input;
-mod sound;
-mod storage;
-
 use crate::{
     error::Error,
     frontend::{Expression, Range},
 };
 
-use super::compiler::W4Compiler;
+use super::{compiler::W4Compiler, error::Type as ErrorType};
 
-pub fn call(name: &str, compiler: &mut W4Compiler, call: &Call) -> Res {
-    match name {
-        "draw" => draw::module(compiler, call),
-        "input" => input::module(compiler, call),
-        "sound" => sound::module(compiler, call),
-        "storage" => storage::module(compiler, call),
-        _ => Err(Error {
-            typ: Box::new(super::error::Type::NonexistentModule(
-                call.method_name.clone(),
-            )),
-            location: call.location,
-        }),
-    }
+pub fn call(name: &str, _compiler: &mut W4Compiler, call: &Call) -> Res {
+    err!(Err ErrorType::NonexistentModule(name.to_string()), call.location)
 }
 
 pub fn exist(name: &str) -> bool {
