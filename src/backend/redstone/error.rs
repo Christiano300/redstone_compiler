@@ -21,6 +21,7 @@ pub enum Type {
     UseOutsideGlobalScope,
     NoConstants,
     NoFunctions,
+    DataString,
 }
 
 impl ErrorType for Type {
@@ -56,7 +57,8 @@ impl ErrorType for Type {
                 Cow::from(format!("{name} has to be known at compile-time"))
             }
             Self::NoConstants => Cow::from("Constants are only supported inside module calls"),
-            Self::NoFunctions => Cow::from("Functions are not supported for the MCN-16 target"),
+            Self::NoFunctions => Cow::from("Functions are not supported on the MCN-16 target"),
+            Self::DataString => Cow::from("Data strings are not supported on the MCN-16 target"),
         }
     }
 }

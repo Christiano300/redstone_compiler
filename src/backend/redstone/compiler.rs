@@ -106,10 +106,7 @@ impl Compiler {
                 return Ok(*v);
             }
         }
-        Err(Error {
-            typ: Box::new(ErrorType::NonexistentInlineVar(symbol.clone())),
-            location,
-        })
+        err!(ErrorType::NonexistentInlineVar(symbol.clone()), location)
     }
 
     fn get_next_available_slot(&mut self) -> Option<u8> {
@@ -235,6 +232,7 @@ impl Compiler {
             Stmt::FunctionDeclaration { ident, args, body } => {
                 self.visit_function_decl(ident, args, body)
             }
+            Stmt::DataDeclaration { ident, value } => return err!(DataString, statement.location),
         }
     }
 
@@ -367,9 +365,7 @@ impl Compiler {
                     Operator::Xor => left ^ right,
                 }))
             }
-            Expr::NumericLiteral(value) => i16::try_from(*value)
-                .or(err!(ErrorType::NumberTooBig, expr.location))
-                .map(Some),
+            Expr::NumericLiteral(value) => Ok(Some(*value as i16)),
             _ => err!(ErrorType::ForbiddenInline, expr.location),
         }
     }
@@ -651,9 +647,7 @@ impl Compiler {
     /// on any compiler error
     pub fn try_get_constant(&mut self, value: &Expression) -> Res<Option<i16>> {
         match &value.typ {
-            Expr::NumericLiteral(num) => {
-                i16::try_from(*num).map_or(err!(NumberTooBig, value.location), |v| Ok(Some(v)))
-            }
+            Expr::NumericLiteral(num) => Ok(Some(*num as i16)),
             Expr::Identifier(symbol) => self.get_inline_var(symbol, value.location).map(Some),
             Expr::BinaryExpr { .. } => self.try_eval_const(value),
             _ => Ok(None),
@@ -682,10 +676,7 @@ impl Compiler {
         use Expr as E;
         match &expr {
             E::NumericLiteral(value) => {
-                self.put_a_number(
-                    i16::try_from(*value).or(err!(NumberTooBig, location))?,
-                    location,
-                );
+                self.put_a_number(*value as i16, location);
             }
             E::Identifier(symbol) => {
                 if let Ok(value) = self.get_inline_var(symbol, location) {
@@ -731,10 +722,7 @@ impl Compiler {
         use Expr as E;
         match &expr.typ {
             E::NumericLiteral(value) => {
-                self.put_b_number(
-                    i16::try_from(*value).or(err!(NumberTooBig, expr.location))?,
-                    expr.location,
-                );
+                self.put_b_number(*value as i16, expr.location);
             }
             E::Identifier(symbol) => {
                 if let Ok(value) = self.get_inline_var(symbol, expr.location) {

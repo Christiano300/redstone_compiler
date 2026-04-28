@@ -18,6 +18,8 @@ fastrand = "2.3.0"
 static_assertions = "1.1.0"
 wasm-encoder = {version = "0.245.1", features = [], default-features = false}
 wasmprinter = {version = "0.246.2", features = [], default-features = false}
+base64 = "0.22.1"
+z85 = "3.0.7"
 
 [lints.rust]
 unsafe_code = "forbid"

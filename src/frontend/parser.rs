@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 
 use crate::{
     error::Error,
-    frontend::{ErrorType, Fragment, Range, Statement, Stmt},
+    frontend::{DataValue, ErrorType, Fragment, Range, Statement, Stmt},
 };
 
 use super::{EqualityOperator, Expr, Expression, Ident, Operator, Token, TokenType};
@@ -94,6 +94,7 @@ impl Parser {
         let current = self.at();
         Ok(match current.typ {
             TokenType::Inline => self.parse_inline_declaration()?,
+            TokenType::Data => self.parse_data_declaration()?,
             TokenType::If => self.parse_conditional()?,
             TokenType::Pass => {
                 let token = self.eat();
@@ -225,7 +226,7 @@ impl Parser {
             },
             _ => return err!(InvalidModuleName, token.location),
         });
-        while matches!(self.at().typ, T::Dot) {
+        while matches!(self.at().typ, T::Comma) {
             self.eat();
             let token = self.eat();
             match token.typ {
@@ -278,6 +279,39 @@ impl Parser {
                     location: token.location,
                 },
                 value: Box::new(value),
+            },
+            location: start + end,
+        })
+    }
+
+    fn parse_data_declaration(&mut self) -> ResStmt {
+        let start = self.eat().location;
+        let token = self.eat();
+        let TokenType::Identifier(ident) = token.typ else {
+            return err!(InvalidAssignment, token.location);
+        };
+
+        self.eat_if(match_fn!(TokenType::Equals), ErrorType::MissingEquals)?;
+
+        let next_token = self.at();
+        let (data, end) = if let TokenType::DataString(..) = next_token.typ {
+            let token = self.eat();
+            let TokenType::DataString(bytes) = token.typ else {
+                unreachable!()
+            };
+            (DataValue::Bytes(bytes), token.location)
+        } else {
+            let expr = self.parse_expression()?;
+            let end = expr.location;
+            (DataValue::Expr(expr), end)
+        };
+        Ok(Statement {
+            typ: Stmt::DataDeclaration {
+                ident: Ident {
+                    symbol: ident,
+                    location: token.location,
+                },
+                value: data,
             },
             location: start + end,
         })
@@ -619,6 +653,7 @@ impl Parser {
                 self.eat_if(match_fn!(TokenType::CloseParen), ErrorType::ExpectedParen)?;
                 value
             }
+            TokenType::DataString(..) => return err!(UnexpectedData, token.location),
             TokenType::Eof => return err!(Eof, token.location),
             _ => return err!(UnexpectedOther, token.location),
         })

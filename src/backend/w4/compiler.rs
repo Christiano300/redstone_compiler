@@ -1,13 +1,14 @@
 use std::{
     any::Any,
     collections::{HashMap, HashSet},
+    fmt::Write,
     mem,
 };
 
 use vec1::{Vec1, vec1};
 use wasm_encoder::{
-    CodeSection, Encode, Function, FunctionSection, ImportSection, Instruction, InstructionSink,
-    Module, TypeSection, ValType,
+    CodeSection, Encode, ExportSection, Function, FunctionSection, ImportSection, Instruction,
+    InstructionSink, MemArg, MemoryType, Module, TypeSection, ValType,
 };
 use wasmprinter::{Config, PrintFmtWrite};
 
@@ -16,12 +17,11 @@ use crate::{
     error::Error,
     frontend::{
         EqualityOperator, Expr, Expression, Fragment, Ident, Operator, Range, Statement, Stmt,
+        args_location,
     },
 };
 
 use super::error::Type as ErrorType;
-
-use super::module::Call;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum OptLevel {
@@ -44,9 +44,10 @@ impl OptLevel {
 #[derive(Debug, Default)]
 struct BlockScope {
     variables: HashMap<String, u32>,
+    inline_variables: HashMap<String, i32>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct W4Function {
     arg_count: u16,
     func_index: u32,
@@ -59,6 +60,7 @@ struct FunctionScope {
     scopes: Vec1<BlockScope>,
     next_local: u32,
     max_locals: u32,
+    pending_assignments: HashMap<String, ()>,
 }
 
 impl FunctionScope {
@@ -78,6 +80,15 @@ impl FunctionScope {
 
     fn sink(&mut self) -> InstructionSink<'_> {
         InstructionSink::new(&mut self.instr_bytes)
+    }
+
+    fn get_inline_const(&self, name: &str) -> Option<i32> {
+        for scope in self.scopes.iter().rev() {
+            if let Some(&value) = scope.inline_variables.get(name) {
+                return Some(value);
+            }
+        }
+        None
     }
 
     fn get_local_index(&self, name: &str) -> Option<u32> {
@@ -169,25 +180,40 @@ impl W4Compiler {
         }
     }
 
-    fn eval_call(&mut self, function: &Expression, args: &Vec<Expression>) -> Res {
+    fn eval_call(&mut self, function: &Expression, args: &Vec<Expression>, location: Range) -> Res {
         use Expr as E;
-        let module;
-        let method;
         match &function.typ {
-            E::Member { object, property } => match &object.typ {
-                E::Identifier(symbol) => {
-                    module = symbol;
-                    method = property;
-                }
-                _ => {
+            E::Member { object, property } => {
+                if let E::Identifier(symbol) = &object.typ {
+                    todo!("Module call");
+                } else {
                     return Err(Error {
                         typ: Box::new(ErrorType::NonexistentModule(format!("{:?}", object))),
                         location: function.location,
                     });
                 }
-            },
-            E::Identifier(_symbol) => {
-                todo!("Function calling");
+            }
+            E::Identifier(symbol) => {
+                let Some(func) = self.functions.get(symbol).cloned() else {
+                    return err!(
+                        ErrorType::NonexistentFunc(symbol.clone()),
+                        function.location
+                    );
+                };
+                if func.arg_count as usize != args.len() {
+                    return err!(
+                        ErrorType::WrongArgs {
+                            supplied: args.len(),
+                            takes: func.arg_count,
+                        },
+                        args_location(args).unwrap_or(location)
+                    );
+                }
+                for arg in args {
+                    self.compile_expr(&arg.typ, true, arg.location)?;
+                }
+                self.instr().call(func.func_index);
+                Ok(())
             }
             _ => {
                 return Err(Error {
@@ -196,32 +222,16 @@ impl W4Compiler {
                 });
             }
         }
-        if !self.modules.contains(module) {
-            return Err(Error {
-                typ: Box::new(ErrorType::UnlodadedModule(module.clone())),
-                location: function.location,
-            });
-        }
-
-        super::module::call(
-            module,
-            self,
-            &Call {
-                method_name: &method.symbol,
-                args,
-                location: function.location,
-            },
-        )
     }
 
     fn scan_functions(&mut self, program: &Fragment) -> Res {
         for line in program {
             if let Stmt::FunctionDeclaration { ident, args, .. } = &line.typ {
                 if self.functions.contains_key(&ident.symbol) {
-                    return Err(Error {
-                        typ: Box::new(ErrorType::DuplicateFunction(ident.symbol.clone())),
-                        location: ident.location,
-                    });
+                    return err!(
+                        ErrorType::DuplicateFunction(ident.symbol.clone()),
+                        ident.location
+                    );
                 }
                 let type_index = self.types.len();
                 // TODO: Optimize type section by reusing types, maybe just predefined types
@@ -252,6 +262,7 @@ impl W4Compiler {
                 args,
                 mut body,
             } => {
+                let args_len = args.len();
                 self.function_scopes.push(FunctionScope::new(args));
                 let last = body.pop().unwrap(); // Body cannot be empty
                 for line in body {
@@ -261,23 +272,54 @@ impl W4Compiler {
                 // We already checked for duplicate functions in the first pass, so we can safely unwrap here
                 let func = self.functions.get(&ident.symbol).unwrap();
                 let scope = self.function_scopes.pop().unwrap(); // TODO: Prob remove vec and use mem::take
-                let mut wasm_func = Function::new([(scope.max_locals, ValType::I32)]);
+                let mut wasm_func =
+                    Function::new([(scope.max_locals - args_len as u32, ValType::I32)]);
                 wasm_func.raw(scope.instr_bytes).instructions().end();
                 self.compiled_functions
                     .insert(func.func_index, (func.type_index, wasm_func));
             }
-            Stmt::InlineDeclaration { ident, value } => todo!(),
-            Stmt::VarDeclaration { ident } => todo!(),
-            Stmt::Use(vec1) => todo!(),
+            Stmt::InlineDeclaration { ident, value } => {
+                if self.func().get_local_index(&ident.symbol).is_some()
+                    || self.func().get_inline_const(&ident.symbol).is_some()
+                {
+                    return err!(
+                        ErrorType::DuplicateVar(ident.symbol.clone()),
+                        ident.location
+                    );
+                }
+                let value = self.try_get_const(&value.typ).ok_or(Error {
+                    typ: Box::new(ErrorType::ForbiddenInline),
+                    location: value.location,
+                })?;
+                self.func()
+                    .scopes
+                    .last_mut()
+                    .inline_variables
+                    .insert(ident.symbol, value);
+            }
+            Stmt::VarDeclaration { ident } => {
+                if self.func().get_local_index(&ident.symbol).is_some()
+                    || self.func().get_inline_const(&ident.symbol).is_some()
+                {
+                    return err!(
+                        ErrorType::DuplicateVar(ident.symbol.clone()),
+                        ident.location
+                    );
+                }
+            }
+            Stmt::Use(vec1) => todo!("use"),
             Stmt::Conditional {
                 condition,
                 body,
                 paths,
                 alternate,
-            } => todo!(),
-            Stmt::EndlessLoop { body } => todo!(),
-            Stmt::WhileLoop { condition, body } => todo!(),
-            Stmt::Pass => todo!(),
+            } => todo!("conditionals"),
+            Stmt::EndlessLoop { body } => {
+                todo!("forever")
+            }
+            Stmt::WhileLoop { condition, body } => todo!("while"),
+            Stmt::Pass => todo!("pass"),
+            Stmt::DataDeclaration { ident, value } => todo!("data"),
         })
     }
 
@@ -289,6 +331,12 @@ impl W4Compiler {
                 }
             }
             Expr::Identifier(name) => {
+                if let Some(val) = self.func().get_inline_const(&name)
+                    && push
+                {
+                    self.instr().i32_const(val);
+                    return Ok(());
+                }
                 let var = self.func().get_local_index(name).ok_or(Error {
                     typ: Box::new(ErrorType::UnknownVariable(name.clone())),
                     location,
@@ -325,6 +373,9 @@ impl W4Compiler {
                 }
             }
             Expr::Assignment { ident, value } => {
+                if let Some(_) = self.func().get_inline_const(&ident.symbol) {
+                    return err!(TrySetInline, ident.location);
+                }
                 self.compile_expr(&value.typ, true, location)?;
                 let var = self
                     .func()
@@ -341,13 +392,10 @@ impl W4Compiler {
                 value,
                 operator,
             } => {
-                todo!()
+                todo!("Iassignments")
             }
             Expr::Call { args, function } => {
-                for arg in args {
-                    self.compile_expr(&arg.typ, true, location)?;
-                }
-                self.eval_call(function, args)?;
+                self.eval_call(function, args, location)?;
             }
             Expr::EqExpr { .. } => {
                 todo!()
@@ -361,17 +409,20 @@ impl W4Compiler {
 
     fn get_output(&mut self) -> Vec<u8> {
         let mut functions = FunctionSection::new();
+        let mut code = CodeSection::new();
         for i in 0..self.compiled_functions.len() {
             functions.function(self.compiled_functions.get(&(i as u32)).unwrap().0);
+            code.function(&self.compiled_functions.get(&(i as u32)).unwrap().1);
+        }
+        let mut exports = ExportSection::new();
+        for i in self.functions.iter() {
+            exports.export(&i.0, wasm_encoder::ExportKind::Func, i.1.func_index);
         }
         let mut module = Module::new();
         module.section(&self.types);
         module.section(&self.imports);
         module.section(&functions);
-        let mut code = CodeSection::new();
-        for i in 0..self.compiled_functions.len() {
-            code.function(&self.compiled_functions.get(&(i as u32)).unwrap().1);
-        }
+        module.section(&exports);
         module.section(&code);
         module.finish()
     }
@@ -384,6 +435,7 @@ impl Output for Vec<u8> {
         let mut buf = String::new();
         Config::new()
             .fold_instructions(false)
+            .name_unnamed(true)
             .print(self, &mut PrintFmtWrite(&mut buf))
             .inspect_err(|e| eprintln!("{e:?}"))
             .unwrap();
@@ -391,7 +443,11 @@ impl Output for Vec<u8> {
     }
 
     fn repr_bin(&self) -> Option<String> {
-        None
+        let mut buf = String::with_capacity(self.len() * 2);
+        for byte in self {
+            write!(buf, "{byte:x}").ok()?;
+        }
+        Some(buf)
     }
 
     fn repr_loc(&self) -> Option<String> {
@@ -407,7 +463,19 @@ impl Target for W4Compiler {
     }
 
     fn compile_program(&mut self, program: Fragment) -> Result<Self::Output, Vec<Error>> {
+        self.imports.import(
+            "env",
+            "memory",
+            MemoryType {
+                minimum: 1,
+                maximum: None,
+                memory64: false,
+                page_size_log2: None,
+                shared: false,
+            },
+        );
         // First pass check for functions
+        // TODO: Rewrite so that functions and outer context are handled differently
         self.scan_functions(&program).map_err(|err| vec![err])?;
 
         let errors = program

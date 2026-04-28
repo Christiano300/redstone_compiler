@@ -1,8 +1,9 @@
-use std::{borrow::Cow, fmt::Debug, iter::Peekable};
-
 use crate::error::Error;
+use base64::{Engine as _, engine::general_purpose::STANDARD};
+use std::{borrow::Cow, char, fmt::Debug, iter::Peekable};
+use z85::decode;
 
-use super::{eq_operator, operator, EqualityOperator as EqOp, Location, Operator, Range};
+use super::{EqualityOperator as EqOp, Location, Operator, Range, eq_operator, operator};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum LexerTarget {
@@ -37,6 +38,8 @@ pub enum TokenType {
     Use,
     Var,
     Eof,
+    Data,
+    DataString(Vec<u8>),
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -75,16 +78,28 @@ impl Debug for Token {
 
 enum ErrorType {
     InvalidNumber(String),
+    NonNegNNum,
     Eof,
     InvalidChar(String),
+    InvalidStringSigil(char),
+    InvalidStringChar(char, &'static str),
+    InvalidString(Cow<'static, str>),
 }
 
 impl crate::error::ErrorType for ErrorType {
     fn get_message(&self) -> Cow<'_, str> {
         match self {
             Self::InvalidNumber(n) => Cow::from(format!("Invalid number: {n}")),
+            Self::NonNegNNum => Cow::from("Numbers in base 2 or 16 cannot be negated"),
             Self::Eof => Cow::from("Unexpected End of file"),
             Self::InvalidChar(c) => Cow::from(format!("Invalid character: {c}")),
+            Self::InvalidStringSigil(c) => Cow::from(format!(
+                "Invalid data string sigil {c}, allowed values types are a, x, h, b, z"
+            )),
+            Self::InvalidStringChar(c, format) => {
+                Cow::from(format!("'{c}' is not allowed in {format} data strings"))
+            }
+            Self::InvalidString(msg) => Cow::from(format!("Invalid string: {msg}")),
         }
     }
 }
@@ -103,6 +118,7 @@ fn keyword(string: String) -> TokenType {
         "var" => TokenType::Var,
         "debug" => TokenType::Debug,
         "fun" => TokenType::Fun,
+        "data" => TokenType::Data,
         _ => TokenType::Identifier(string),
     }
 }
@@ -221,14 +237,14 @@ impl Lexer {
                 _ => {
                     if char.is_ascii_digit() {
                         let start = current_location;
-                        let num = self.read_num(char, &mut src, &mut current_location)?;
+                        let num = self.read_num(char, &mut src, true, &mut current_location)?;
 
                         tokens.push(T {
                             typ: Tt::Number(num),
                             location: Range(start, current_location),
                         });
-                    } else if char.is_alphabetic() {
-                        read_identifier(char, &mut src, &mut current_location, &mut tokens);
+                    } else if char.is_alphabetic() || char == '_' {
+                        read_identifier(char, &mut src, &mut current_location, &mut tokens)?;
                     } else if !is_skippable(char) {
                         return err!(
                             ErrorType::InvalidChar(char.to_string()),
@@ -268,6 +284,7 @@ impl Lexer {
                             err!(ErrorType::Eof, Range(start, *current_location)),
                         ))?,
                         src,
+                        false,
                         current_location,
                     )?;
                     T {
@@ -284,14 +301,26 @@ impl Lexer {
         &self,
         first: char,
         src: &mut Peekable<std::str::Chars<'_>>,
+        allow_n_num: bool,
         current_location: &mut Location,
     ) -> Result<i32, Error> {
         let mut c = src.peek();
+        let start = *current_location;
 
         if first == '0' {
             match c {
-                Some('b') => return self.read_n_num(src, current_location, 2),
-                Some('x') => return self.read_n_num(src, current_location, 16),
+                Some('b') => {
+                    if !allow_n_num {
+                        return err!(NonNegNNum, Range::single_char(*current_location));
+                    }
+                    return self.read_n_num(src, current_location, 2);
+                }
+                Some('x') => {
+                    if !allow_n_num {
+                        return err!(NonNegNNum, Range::single_char(*current_location));
+                    }
+                    return self.read_n_num(src, current_location, 16);
+                }
                 _ => {}
             }
         }
@@ -310,17 +339,14 @@ impl Lexer {
             next(src, current_location);
             c = src.peek();
         }
-        let value: i32 = match num.parse() {
-            Ok(v) => v,
-            Err(_) => {
-                return err!(
-                    ErrorType::InvalidNumber(num),
-                    Range(*current_location, *current_location)
-                );
-            }
-        };
-        self.validate_number(value, *current_location)?;
-        Ok(value)
+        match self.target {
+            LexerTarget::Redstone => num.parse::<i16>().map(|num| num as i32),
+            LexerTarget::W4 => num.parse::<i32>(),
+        }
+        .or(err!(
+            ErrorType::InvalidNumber(num),
+            Range(start, *current_location)
+        ))
     }
 
     fn read_n_num(
@@ -345,107 +371,15 @@ impl Lexer {
             next(src, current_location);
             c = src.peek();
         }
-        let value = u32::from_str_radix(num.as_str(), radix).map_or_else(
-            |_| {
-                err!(
-                    ErrorType::InvalidNumber(num),
-                    Range(start, *current_location)
-                )
-            },
-            |u| {
-                let value = u as i32;
-                self.validate_number(value, start)?;
-                Ok(value)
-            },
-        )?;
-        Ok(value)
-    }
-
-    fn validate_number(&self, value: i32, location: Location) -> Result<(), Error> {
         match self.target {
-            LexerTarget::Redstone => {
-                if value > u16::MAX as i32 {
-                    return err!(
-                        ErrorType::InvalidNumber(format!(
-                            "{} is out of range for Redstone (must be between 0 and {})",
-                            value,
-                            u16::MAX
-                        )),
-                        Range(location, location)
-                    );
-                }
-                if value < i16::MIN as i32 {
-                    return err!(
-                        ErrorType::InvalidNumber(format!(
-                            "{} is out of range for Redstone (must be between {} and {})",
-                            value,
-                            i16::MIN,
-                            i16::MAX
-                        )),
-                        Range(location, location)
-                    );
-                }
-            }
-            LexerTarget::W4 => {
-                if value > i32::MAX {
-                    return err!(
-                        ErrorType::InvalidNumber(format!(
-                            "{} is out of range for W4 (must be between {} and {})",
-                            value,
-                            i32::MIN,
-                            i32::MAX
-                        )),
-                        Range(location, location)
-                    );
-                }
-                if value < i32::MIN {
-                    return err!(
-                        ErrorType::InvalidNumber(format!(
-                            "{} is out of range for W4 (must be between {} and {})",
-                            value,
-                            i32::MIN,
-                            i32::MAX
-                        )),
-                        Range(location, location)
-                    );
-                }
-            }
+            LexerTarget::Redstone => u16::from_str_radix(&num, radix).map(|num| num as i32),
+            LexerTarget::W4 => u32::from_str_radix(&num, radix).map(|num| num as i32),
         }
-        Ok(())
+        .or(err!(
+            ErrorType::InvalidNumber(num),
+            Range(start, *current_location)
+        ))
     }
-}
-
-#[allow(dead_code)]
-fn read_num(
-    first: char,
-    src: &mut Peekable<std::str::Chars<'_>>,
-    current_location: &mut Location,
-) -> Result<i32, Error> {
-    let mut c = src.peek();
-
-    if first == '0' {
-        match c {
-            Some('b') => return read_n_num(src, current_location, 2),
-            Some('x') => return read_n_num(src, current_location, 16),
-            _ => {}
-        }
-    }
-
-    let mut num = String::new();
-    num.push(first);
-
-    loop {
-        let Some(n) = c else {
-            break;
-        };
-        if !n.is_ascii_digit() {
-            break;
-        }
-        num.push(*n);
-        next(src, current_location);
-        c = src.peek();
-    }
-    Ok(num.parse().unwrap())
 }
 
 fn read_identifier(
@@ -453,11 +387,14 @@ fn read_identifier(
     src: &mut Peekable<std::str::Chars<'_>>,
     current_location: &mut Location,
     tokens: &mut Vec<Token>,
-) {
+) -> Result<(), Error> {
+    let mut c = src.peek();
+    if c == Some(&'"') {
+        return read_string(char, src, current_location, tokens);
+    }
     let start = *current_location;
     let mut identifier = String::new();
     identifier.push(char);
-    let mut c = src.peek();
 
     loop {
         let Some(a) = c else {
@@ -472,39 +409,180 @@ fn read_identifier(
     }
     let len = identifier.len() as u16;
     tokens.push(T::with_len(keyword(identifier), start, len));
+    Ok(())
 }
 
-#[allow(dead_code)]
-fn read_n_num(
+fn read_string(
+    char: char,
     src: &mut Peekable<std::str::Chars<'_>>,
     current_location: &mut Location,
-    radix: u32,
-) -> Result<i32, Error> {
+    tokens: &mut Vec<Token>,
+) -> Result<(), Error> {
     let start = *current_location;
-    next(src, current_location);
-    let mut c = src.peek();
-    let mut num = String::new();
+    // Consume the opening quote
+    if src.peek() != Some(&'"') {
+        return err!(
+            ErrorType::InvalidString(Cow::from("Expected opening quote")),
+            Range::single_char(*current_location)
+        );
+    }
+    next(src, current_location); // consume opening "
+    let data = match char {
+        'a' => read_ascii_string(src, current_location)?,
+        'x' | 'h' => read_hex_string(src, current_location)?,
+        'b' => read_base64_string(src, current_location)?,
+        'z' => read_z85_string(src, current_location)?,
+        _ => {
+            return err!(
+                ErrorType::InvalidStringSigil(char),
+                Range::single_char(start)
+            );
+        }
+    };
+    tokens.push(Token {
+        typ: TokenType::DataString(data),
+        location: Range(start, *current_location),
+    });
+    Ok(())
+}
 
+fn read_z85_string(
+    src: &mut Peekable<std::str::Chars<'_>>,
+    current_location: &mut Location,
+) -> Result<Vec<u8>, Error> {
+    let mut buf = String::new();
+    let start = *current_location;
     loop {
-        let Some(n) = c else {
+        let Some(c) = next(src, current_location) else {
             break;
         };
-        if !n.is_ascii_hexdigit() {
+        if c == '"' {
             break;
         }
-        num.push(*n);
-        next(src, current_location);
-        c = src.peek();
+        buf.push(c);
     }
-    u32::from_str_radix(num.as_str(), radix).map_or_else(
-        |_| {
-            err!(
-                ErrorType::InvalidNumber(num),
-                Range(start, *current_location)
-            )
-        },
-        |u| Ok(u as i32),
-    )
+    decode(buf).map_err(|_| Error {
+        typ: Box::new(ErrorType::InvalidString(Cow::from("Failed to parse Z85"))),
+        location: Range(start, *current_location),
+    })
+}
+
+fn read_base64_string(
+    src: &mut Peekable<std::str::Chars<'_>>,
+    current_location: &mut Location,
+) -> Result<Vec<u8>, Error> {
+    let mut buf = String::new();
+    let start = *current_location;
+    loop {
+        let Some(c) = next(src, current_location) else {
+            break;
+        };
+        if c == '"' {
+            break;
+        }
+        buf.push(c);
+    }
+    STANDARD.decode(buf).map_err(|_| Error {
+        typ: Box::new(ErrorType::InvalidString(Cow::from(
+            "Failed to parse Base 64",
+        ))),
+        location: Range(start, *current_location),
+    })
+}
+
+fn read_hex_string(
+    src: &mut Peekable<std::str::Chars<'_>>,
+    current_location: &mut Location,
+) -> Result<Vec<u8>, Error> {
+    let mut buf = String::new();
+    let start = *current_location;
+    loop {
+        let Some(c) = next(src, current_location) else {
+            break;
+        };
+        match c {
+            '"' => break,
+            c if c.is_ascii_hexdigit() => buf.push(c),
+            _ => err!(
+                ErrorType::InvalidStringChar(c, "hex"),
+                Range::single_char(*current_location)
+            )?,
+        }
+    }
+    if buf.len() % 2 != 0 {
+        return err!(
+            ErrorType::InvalidString(Cow::from("Hex string must have an even number or nibbles")),
+            Range(start, *current_location)
+        );
+    }
+    Ok(buf
+        .as_bytes()
+        .chunks(2)
+        .map(|s| str::from_utf8(s).unwrap())
+        .map(|s| u8::from_str_radix(s, 16).unwrap())
+        .collect())
+}
+
+fn read_ascii_string(
+    src: &mut Peekable<std::str::Chars<'_>>,
+    current_location: &mut Location,
+) -> Result<Vec<u8>, Error> {
+    let mut buf = vec![];
+    loop {
+        let Some(c) = next(src, current_location) else {
+            break;
+        };
+        match c {
+            '"' => break,
+            '\\' => {
+                let Some(escaped) = next(src, current_location) else {
+                    break;
+                };
+                let byte = match escaped {
+                    't' => '\t' as u8,
+                    'n' => '\n' as u8,
+                    'r' => '\r' as u8,
+                    '0' => '\0' as u8,
+                    '\\' => '\\' as u8,
+                    'x' => {
+                        let Some(a) = next(src, current_location) else {
+                            break;
+                        };
+                        if !a.is_ascii_hexdigit() {
+                            return err!(
+                                ErrorType::InvalidStringChar(a, "ascii"),
+                                Range::single_char(*current_location)
+                            );
+                        }
+                        let Some(b) = next(src, current_location) else {
+                            break;
+                        };
+                        if !b.is_ascii_hexdigit() {
+                            return err!(
+                                ErrorType::InvalidStringChar(a, "ascii"),
+                                Range::single_char(*current_location)
+                            );
+                        }
+                        let mut s = String::with_capacity(2);
+                        s.push(a);
+                        s.push(b);
+                        u8::from_str_radix(&s, 16).unwrap()
+                    }
+                    _ => err!(
+                        ErrorType::InvalidString(Cow::from("Only Hex is allowed in hex excapes")),
+                        Range::single_char(*current_location)
+                    )?,
+                };
+                buf.push(byte);
+            }
+            c if c.is_ascii() => buf.push(c as u8),
+            _ => err!(
+                ErrorType::InvalidStringChar(c, "ascii"),
+                Range::single_char(*current_location)
+            )?,
+        }
+    }
+    Ok(buf)
 }
 
 #[cfg(test)]
@@ -513,8 +591,8 @@ mod test {
     use std::iter::once;
 
     use crate::{
-        frontend::{EqualityOperator, Lexer, LexerTarget, Operator, TokenType},
         Error,
+        frontend::{EqualityOperator, Lexer, LexerTarget, Operator, TokenType},
     };
 
     fn token_types(code: &str, target: LexerTarget) -> Result<Vec<TokenType>, Error> {
@@ -524,25 +602,13 @@ mod test {
 
     #[test]
     fn numbers_w4() {
-        let code = "0  1  3  -17  0b1011 0xffff -0b101";
-        let expected: Vec<_> = [0, 1, 3, -17, 11, 65535, -5]
+        let code = "0  1  3 -17 0b1011 0xffff";
+        let expected: Vec<_> = [0, 1, 3, -17, 11, 65535]
             .into_iter()
             .map(TokenType::Number)
             .chain(once(TokenType::Eof))
             .collect();
         let ast = token_types(code, LexerTarget::W4).expect("Code to compile");
-        assert_eq!(expected, ast);
-    }
-
-    #[test]
-    fn numbers_redstone_clamped() {
-        let code = "0  1  3  -17  0b1011 0xffff -0b101";
-        let expected: Vec<_> = [0, 1, 3, -17, 11, 65535, -5]
-            .into_iter()
-            .map(TokenType::Number)
-            .chain(once(TokenType::Eof))
-            .collect();
-        let ast = token_types(code, LexerTarget::Redstone).expect("Code to compile");
         assert_eq!(expected, ast);
     }
 
@@ -600,13 +666,167 @@ mod test {
 
     #[test]
     fn numbers() {
-        let code = "0  1  3  -17  0b1011 0xffff -0b101";
-        let expected: Vec<_> = [0, 1, 3, -17, 11, 65535, -5]
+        let code = "0  1  3  -17  0b1011 0xffff";
+        let expected: Vec<_> = [0, 1, 3, -17, 11, 65535]
             .into_iter()
             .map(TokenType::Number)
             .chain(once(TokenType::Eof))
             .collect();
         let ast = token_types(code, LexerTarget::W4).expect("Code to compile");
+        assert_eq!(expected, ast);
+    }
+
+    #[test]
+    fn ascii_data_string() {
+        let code = "a\"hello\"";
+        let expected: Vec<_> = [TokenType::DataString(vec![b'h', b'e', b'l', b'l', b'o'])]
+            .into_iter()
+            .chain(once(TokenType::Eof))
+            .collect();
+        let ast = token_types(code, LexerTarget::default()).expect("Code to compile");
+        assert_eq!(expected, ast);
+    }
+
+    #[test]
+    fn ascii_data_string_with_escape() {
+        let code = "a\"hello\\nworld\"";
+        let expected: Vec<_> = [TokenType::DataString(vec![b'h', b'e', b'l', b'l', b'o', b'\n', b'w', b'o', b'r', b'l', b'd'])]
+            .into_iter()
+            .chain(once(TokenType::Eof))
+            .collect();
+        let ast = token_types(code, LexerTarget::default()).expect("Code to compile");
+        assert_eq!(expected, ast);
+    }
+
+    #[test]
+    fn ascii_data_string_with_hex_escape() {
+        let code = "a\"\\x41\\x42\\x43\"";
+        let expected: Vec<_> = [TokenType::DataString(vec![0x41, 0x42, 0x43])]
+            .into_iter()
+            .chain(once(TokenType::Eof))
+            .collect();
+        let ast = token_types(code, LexerTarget::default()).expect("Code to compile");
+        assert_eq!(expected, ast);
+    }
+
+    #[test]
+    fn hex_data_string() {
+        let code = "x\"deadbeef\"";
+        let expected: Vec<_> = [TokenType::DataString(vec![0xde, 0xad, 0xbe, 0xef])]
+            .into_iter()
+            .chain(once(TokenType::Eof))
+            .collect();
+        let ast = token_types(code, LexerTarget::default()).expect("Code to compile");
+        assert_eq!(expected, ast);
+    }
+
+    #[test]
+    fn hex_data_string_invalid_char() {
+        let code = "x\"deadzzzz\"";
+        let result = token_types(code, LexerTarget::default());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn hex_data_string_odd_length() {
+        let code = "x\"deadbee\"";
+        let result = token_types(code, LexerTarget::default());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn base64_data_string() {
+        let code = "b\"SGVsbG8=\"";
+        let expected: Vec<_> = [TokenType::DataString(b"Hello".to_vec())]
+            .into_iter()
+            .chain(once(TokenType::Eof))
+            .collect();
+        let ast = token_types(code, LexerTarget::default()).expect("Code to compile");
+        assert_eq!(expected, ast);
+    }
+
+    #[test]
+    fn z85_data_string() {
+        let code = "z\"HelloWorld\"";
+        let result = token_types(code, LexerTarget::default());
+        assert!(result.is_ok());
+        if let TokenType::DataString(data) = &result.unwrap()[0] {
+            assert!(!data.is_empty());
+        } else {
+            panic!("Expected DataString token");
+        }
+    }
+
+    #[test]
+    fn empty_ascii_data_string() {
+        let code = "a\"\"";
+        let expected: Vec<_> = [TokenType::DataString(vec![])]
+            .into_iter()
+            .chain(once(TokenType::Eof))
+            .collect();
+        let ast = token_types(code, LexerTarget::default()).expect("Code to compile");
+        assert_eq!(expected, ast);
+    }
+
+    #[test]
+    fn empty_hex_data_string() {
+        let code = "x\"\"";
+        let expected: Vec<_> = [TokenType::DataString(vec![])]
+            .into_iter()
+            .chain(once(TokenType::Eof))
+            .collect();
+        let ast = token_types(code, LexerTarget::default()).expect("Code to compile");
+        assert_eq!(expected, ast);
+    }
+
+    #[test]
+    fn data_string_followed_by_token() {
+        let code = "a\"hello\" world";
+        let ast = token_types(code, LexerTarget::default()).expect("Code to compile");
+        assert_eq!(ast[0], TokenType::DataString(b"hello".to_vec()));
+        assert_eq!(ast[1], TokenType::Identifier("world".to_string()));
+    }
+
+    #[test]
+    fn ascii_string_null_escape() {
+        let code = "a\"hello\\0world\"";
+        let expected: Vec<_> = [TokenType::DataString(b"hello\0world".to_vec())]
+            .into_iter()
+            .chain(once(TokenType::Eof))
+            .collect();
+        let ast = token_types(code, LexerTarget::default()).expect("Code to compile");
+        assert_eq!(expected, ast);
+    }
+
+    #[test]
+    fn ascii_string_tab_escape() {
+        let code = "a\"hello\\tworld\"";
+        let expected: Vec<_> = [TokenType::DataString(b"hello\tworld".to_vec())]
+            .into_iter()
+            .chain(once(TokenType::Eof))
+            .collect();
+        let ast = token_types(code, LexerTarget::default()).expect("Code to compile");
+        assert_eq!(expected, ast);
+    }
+
+    #[test]
+    fn base64_invalid() {
+        let code = "b\"invalid!!\"";
+        let result = token_types(code, LexerTarget::default());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn multiple_data_strings() {
+        let code = "a\"hello\" x\"ff\"";
+        let expected: Vec<_> = [
+            TokenType::DataString(b"hello".to_vec()),
+            TokenType::DataString(vec![0xff]),
+        ]
+        .into_iter()
+        .chain(once(TokenType::Eof))
+        .collect();
+        let ast = token_types(code, LexerTarget::default()).expect("Code to compile");
         assert_eq!(expected, ast);
     }
 }

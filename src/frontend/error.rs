@@ -17,6 +17,7 @@ pub enum Type {
     InvalidDot,
     Eof,
     UnexpectedOther,
+    UnexpectedData,
     ExpectedParen,
 }
 
@@ -39,6 +40,9 @@ impl ErrorType for Type {
             Self::InvalidDot => "Cannot use . on this",
             Self::Eof => "Unexpected EOF while parsing",
             Self::UnexpectedOther => "Unexpected token found",
+            Self::UnexpectedData => {
+                "Data strings cannot be used in normal expressions, use the `data` keyword"
+            }
             Self::ExpectedParen => "Unexpected token, expected ')'",
         })
     }

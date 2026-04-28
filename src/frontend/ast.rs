@@ -29,6 +29,10 @@ pub enum Stmt {
         ident: Ident,
         value: Box<Expression>,
     },
+    DataDeclaration {
+        ident: Ident,
+        value: DataValue,
+    },
     VarDeclaration {
         ident: Ident,
     },
@@ -83,7 +87,6 @@ pub enum Expr {
         value: Box<Expression>,
         operator: Operator,
     },
-
     Member {
         object: Box<Expression>,
         property: Ident,
@@ -93,6 +96,12 @@ pub enum Expr {
         function: Box<Expression>,
     },
     Debug,
+}
+
+#[derive(Debug)]
+pub enum DataValue {
+    Bytes(Vec<u8>),
+    Expr(Expression),
 }
 
 impl std::fmt::Debug for Expression {
@@ -202,4 +211,9 @@ pub const fn eq_operator(symbol: char, eq_after: bool) -> Option<EqualityOperato
         ('!', true) => Some(EO::NotEqual),
         _ => None,
     }
+}
+
+#[must_use]
+pub fn args_location(args: &[Expression]) -> Option<Range> {
+    args.iter().map(|e| e.location).reduce(|a, b| a + b)
 }
