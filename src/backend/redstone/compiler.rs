@@ -224,7 +224,7 @@ impl Compiler {
             Stmt::FunctionDeclaration { ident, args, body } => {
                 self.visit_function_decl(ident, args, body)
             }
-            Stmt::DataDeclaration { ident, value } => {
+            Stmt::DataDeclaration { .. } => {
                 return err!(Err DataString, statement.location);
             }
         }
